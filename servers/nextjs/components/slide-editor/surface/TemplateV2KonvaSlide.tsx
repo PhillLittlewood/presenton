@@ -11,7 +11,8 @@ import {
   type ChangeEvent as ReactChangeEvent,
 } from "react";
 import type Konva from "konva";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import type { RootState } from "@/store/store";
 import { Loader2 } from "lucide-react";
 import { Layer, Line, Rect, Stage } from "react-konva";
 import { notify } from "@/components/ui/sonner";
@@ -354,6 +355,17 @@ function TemplateV2KonvaSlideComponent({
     ? Math.max(0.1, Math.abs(displayScale))
     : 1;
   const dispatch = useDispatch();
+  // The slide's script, used to suggest a motion clip length. Selecting the
+  // string keeps this from re-rendering the slide on unrelated store changes.
+  const speakerNote = useSelector((state: RootState) => {
+    const slides = state.presentationGeneration.presentationData?.slides;
+    if (!Array.isArray(slides)) return null;
+    const byId =
+      slideId != null ? slides.find((item) => String(item?.id) === String(slideId)) : undefined;
+    const index = typeof renderIndex === "number" ? renderIndex : slideIndex;
+    const note = (byId ?? slides[index])?.speaker_note;
+    return typeof note === "string" ? note : null;
+  });
   const surfaceId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootElement, setRootElement] = useState<HTMLDivElement | null>(null);
@@ -2836,6 +2848,7 @@ function TemplateV2KonvaSlideComponent({
               ? inlineEdit.textSelectionRange
               : null
           }
+          speakerNote={speakerNote}
           onChange={(_index, element) => applyToolbarElementChange(element)}
           onImageCropModeChange={setImageCropActive}
           onEditIcon={() => openIconEditor(selection)}

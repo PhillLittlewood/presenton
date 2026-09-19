@@ -2,16 +2,20 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Film, Loader2, Sparkles, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_MOTION_SECONDS,
+  MAX_MOTION_SECONDS,
+  MIN_MOTION_SECONDS,
+  clampMotionSeconds,
+  suggestMotionDuration,
+} from "@/components/slide-editor/images/motion-duration";
 import { MotionVideoApi } from "@/app/(presentation-generator)/services/api/motion-video";
 import { notify } from "@/components/ui/sonner";
 import { resolveBackendAssetSource } from "@/utils/api";
 
 // A slow or unreachable text LLM must not block generation.
 const SUGGEST_TIMEOUT_MS = 25_000;
-const DEFAULT_DURATION_SECONDS = 5;
-const MIN_DURATION_SECONDS = 2;
-const MAX_DURATION_SECONDS = 10;
 
 type Phase = "checking" | "unavailable" | "ready" | "suggesting" | "generating";
 
@@ -26,6 +30,7 @@ export default function MotionClipModal({
   imageUrl,
   imagePrompt,
   motionVideo,
+  speakerNote,
   onClose,
   onChange,
 }: {
@@ -34,6 +39,8 @@ export default function MotionClipModal({
   /** The image's stored generation prompt (ImageElement.prompt). */
   imagePrompt: string | null | undefined;
   motionVideo: string | null | undefined;
+  /** The slide's script; the clip length is suggested from its narration time. */
+  speakerNote?: string | null;
   onClose: () => void;
   /** Called with the new clip URL, or null when the clip was removed. */
   onChange: (motionVideo: string | null) => void;
@@ -42,7 +49,10 @@ export default function MotionClipModal({
   const [prompt, setPrompt] = useState("");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [duration, setDuration] = useState(DEFAULT_DURATION_SECONDS);
+  const suggestion = useMemo(() => suggestMotionDuration(speakerNote), [speakerNote]);
+  const [duration, setDuration] = useState(
+    suggestion?.seconds ?? DEFAULT_MOTION_SECONDS,
+  );
   const abortRef = useRef<AbortController | null>(null);
 
   const suggest = useCallback(async () => {
@@ -68,6 +78,8 @@ export default function MotionClipModal({
     setPrompt("");
     setProgress("");
     setError(null);
+    // Start from the script-based suggestion; the user can change it freely.
+    setDuration(suggestion?.seconds ?? DEFAULT_MOTION_SECONDS);
     setPhase("checking");
     MotionVideoApi.getStatus()
       .then((status) => {
@@ -243,22 +255,44 @@ export default function MotionClipModal({
                 <input
                   id="motion-duration"
                   type="number"
-                  min={MIN_DURATION_SECONDS}
-                  max={MAX_DURATION_SECONDS}
+                  min={MIN_MOTION_SECONDS}
+                  max={MAX_MOTION_SECONDS}
                   step={1}
                   value={duration}
                   disabled={phase !== "ready"}
                   onChange={(event) => {
                     const next = Math.round(Number(event.target.value));
-                    if (Number.isFinite(next)) {
-                      setDuration(
-                        Math.min(MAX_DURATION_SECONDS, Math.max(MIN_DURATION_SECONDS, next)),
-                      );
-                    }
+                    if (Number.isFinite(next)) setDuration(clampMotionSeconds(next));
                   }}
                   className="w-20 rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-gray-50"
                 />
               </div>
+
+              <p className="-mt-2 text-xs text-gray-500">
+                {suggestion ? (
+                  <>
+                    Suggested from this slide&apos;s script: about {suggestion.units}{" "}
+                    {suggestion.units === 1 ? "word" : "words"} ≈{" "}
+                    {Math.max(1, Math.round(suggestion.narrationSeconds))} s of narration
+                    {suggestion.capped ? ` (clips are limited to ${MAX_MOTION_SECONDS} s)` : ""}.
+                    {" "}
+                    {duration !== suggestion.seconds ? (
+                      <button
+                        type="button"
+                        onClick={() => setDuration(suggestion.seconds)}
+                        disabled={phase !== "ready"}
+                        className="font-medium text-[#5146E5] underline disabled:opacity-50"
+                      >
+                        Use suggested ({suggestion.seconds} s)
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  "This slide has no script, so a default length is used."
+                )}{" "}
+                A clip shorter than the narration fades back to the still image; a longer one
+                is trimmed. Longer clips take much longer to generate.
+              </p>
 
               {motionVideo ? (
                 <div className="flex items-center justify-between rounded-lg bg-[#F9F8F8] p-3 text-sm">

@@ -289,11 +289,13 @@ export function ImageToolbar({
   scale,
   onChange,
   onCropModeChange,
+  speakerNote,
 }: {
   anchorBox?: FloatingToolbarBox | null;
   element: ImageSlideElement;
   index: number;
   scale: number;
+  speakerNote?: string | null;
   onChange: (index: number, element: ImageSlideElement) => void;
   onCropModeChange?: (active: boolean) => void;
 }) {
@@ -872,6 +874,7 @@ export function ImageToolbar({
         imageUrl={element.data}
         imagePrompt={element.prompt}
         motionVideo={element.motion_video}
+        speakerNote={speakerNote}
         onClose={() => setMotionClipOpen(false)}
         onChange={(motionVideo) => update({ motion_video: motionVideo })}
       />

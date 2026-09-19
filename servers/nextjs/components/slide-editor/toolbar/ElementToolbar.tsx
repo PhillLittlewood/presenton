@@ -28,6 +28,8 @@ type ElementToolbarProps = {
   selectedTableCell: TableCellSelection | null;
   templateFonts?: TemplateFontOption[];
   textSelectionRange?: TextSelectionRange | null;
+  /** The slide's speaker note; used to suggest a motion clip length. */
+  speakerNote?: string | null;
   onChange: (index: number, element: SlideElement, path?: string) => void;
   onImageCropModeChange?: (active: boolean) => void;
   onEditIcon: (index: number, path?: string) => void;
@@ -96,6 +98,7 @@ const TOOLBAR_RENDERERS: Partial<
     onImageCropModeChange,
     path,
     scale,
+    speakerNote,
   }) =>
     element.type === "image" ? (
       element.is_icon === true ? (
@@ -115,6 +118,7 @@ const TOOLBAR_RENDERERS: Partial<
           anchorBox={anchorBox}
           scale={scale}
           onCropModeChange={onImageCropModeChange}
+          speakerNote={speakerNote}
           onChange={(index, element) => onChange(index, element, path)}
         />
       )
