@@ -17,6 +17,7 @@ import TextProvider from "./TextProvider";
 import ImageProvider from "./ImageProvider";
 import WebSearchProvider from "./WebSearchProvider";
 import VideoNarrationProvider from "./VideoNarrationProvider";
+import VideoMotionProvider from "./VideoMotionProvider";
 import PrivacySettings from "./PrivacySettings";
 import {
   IMAGE_PROVIDERS,
@@ -324,11 +325,14 @@ const SettingsPage = () => {
   const narrationSummary = llmConfig.DISABLE_VIDEO_NARRATION
     ? "Narration disabled"
     : "Narration: ComfyUI";
+  const motionSummary = llmConfig.DISABLE_MOTION_VIDEO
+    ? "Motion disabled"
+    : "Motion: ComfyUI";
 
   useEffect(() => {
     if (
       llmConfig.LLM === "presenton" &&
-      (selectedProvider === "image-provider" || selectedProvider === "web-search-provider" || selectedProvider === "video-narration")
+      (selectedProvider === "image-provider" || selectedProvider === "web-search-provider" || selectedProvider === "video-narration" || selectedProvider === "motion-video")
     ) {
       setSelectedProvider("text-provider");
     }
@@ -433,7 +437,7 @@ const SettingsPage = () => {
                 Settings
               </h3>
               <p className="text-[10px] px-2.5 py-0.5 rounded-[50px] text-[#7A5AF8] border border-[#EDEEEF]  font-medium ">
-                {textSummary} · {imageSummary} · {webSearchSummary} · {narrationSummary}
+                {textSummary} · {imageSummary} · {webSearchSummary} · {narrationSummary} · {motionSummary}
               </p>
             </div>
           </div>
@@ -457,6 +461,7 @@ const SettingsPage = () => {
           {selectedProvider === 'image-provider' && llmConfig.LLM !== "presenton" && <ImageProvider llmConfig={llmConfig} setLlmConfig={setLlmConfig} />}
           {selectedProvider === 'web-search-provider' && llmConfig.LLM !== "presenton" && <WebSearchProvider llmConfig={llmConfig} setLlmConfig={setLlmConfig} />}
           {selectedProvider === 'video-narration' && llmConfig.LLM !== "presenton" && <VideoNarrationProvider llmConfig={llmConfig} setLlmConfig={setLlmConfig} />}
+          {selectedProvider === 'motion-video' && llmConfig.LLM !== "presenton" && <VideoMotionProvider llmConfig={llmConfig} setLlmConfig={setLlmConfig} />}
           {selectedProvider === 'privacy' && <PrivacySettings />}
           {selectedProvider === "admin" && <AdminPanel embedded />}
           {selectedProvider === "session" && (

@@ -237,6 +237,9 @@ class Image(BaseModel):  # Konva Image
     decorative: bool
     name: str
     prompt: Optional[str] = None
+    # Sidecar for an AI-generated motion clip (/app_data/motion/...). The static
+    # `data` image stays the visual everywhere except video export.
+    motion_video: Optional[str] = None
     is_icon: bool
     icon_type: Optional[IconType] = None
 

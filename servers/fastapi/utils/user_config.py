@@ -10,6 +10,10 @@ from utils.get_env import (
     get_video_narration_provider_env,
     get_comfyui_tts_url_env,
     get_comfyui_tts_workflow_env,
+    get_disable_motion_video_env,
+    get_motion_video_provider_env,
+    get_comfyui_motion_url_env,
+    get_comfyui_motion_workflow_env,
     get_custom_llm_api_key_env,
     get_custom_llm_url_env,
     get_custom_model_env,
@@ -111,6 +115,10 @@ from utils.set_env import (
     set_video_narration_provider_env,
     set_comfyui_tts_url_env,
     set_comfyui_tts_workflow_env,
+    set_disable_motion_video_env,
+    set_motion_video_provider_env,
+    set_comfyui_motion_url_env,
+    set_comfyui_motion_workflow_env,
     set_custom_llm_api_key_env,
     set_custom_llm_url_env,
     set_custom_model_env,
@@ -329,6 +337,17 @@ def get_user_config():
         COMFYUI_TTS_URL=existing_config.COMFYUI_TTS_URL or get_comfyui_tts_url_env(),
         COMFYUI_TTS_WORKFLOW=existing_config.COMFYUI_TTS_WORKFLOW
         or get_comfyui_tts_workflow_env(),
+        DISABLE_MOTION_VIDEO=(
+            existing_config.DISABLE_MOTION_VIDEO
+            if existing_config.DISABLE_MOTION_VIDEO is not None
+            else (parse_bool_or_none(get_disable_motion_video_env()) or False)
+        ),
+        MOTION_VIDEO_PROVIDER=existing_config.MOTION_VIDEO_PROVIDER
+        or get_motion_video_provider_env(),
+        COMFYUI_MOTION_URL=existing_config.COMFYUI_MOTION_URL
+        or get_comfyui_motion_url_env(),
+        COMFYUI_MOTION_WORKFLOW=existing_config.COMFYUI_MOTION_WORKFLOW
+        or get_comfyui_motion_workflow_env(),
         DALL_E_3_QUALITY=existing_config.DALL_E_3_QUALITY or get_dall_e_3_quality_env(),
         GPT_IMAGE_1_5_QUALITY=existing_config.GPT_IMAGE_1_5_QUALITY
         or get_gpt_image_1_5_quality_env(),
@@ -548,6 +567,14 @@ def update_env_with_user_config():
         set_comfyui_tts_url_env(user_config.COMFYUI_TTS_URL)
     if user_config.COMFYUI_TTS_WORKFLOW:
         set_comfyui_tts_workflow_env(user_config.COMFYUI_TTS_WORKFLOW)
+    if user_config.DISABLE_MOTION_VIDEO is not None:
+        set_disable_motion_video_env(str(user_config.DISABLE_MOTION_VIDEO))
+    if user_config.MOTION_VIDEO_PROVIDER:
+        set_motion_video_provider_env(user_config.MOTION_VIDEO_PROVIDER)
+    if user_config.COMFYUI_MOTION_URL:
+        set_comfyui_motion_url_env(user_config.COMFYUI_MOTION_URL)
+    if user_config.COMFYUI_MOTION_WORKFLOW:
+        set_comfyui_motion_workflow_env(user_config.COMFYUI_MOTION_WORKFLOW)
     if user_config.DALL_E_3_QUALITY:
         set_dall_e_3_quality_env(user_config.DALL_E_3_QUALITY)
     if user_config.GPT_IMAGE_1_5_QUALITY:

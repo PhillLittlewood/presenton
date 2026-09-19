@@ -466,6 +466,8 @@ export type ImageElement = ElementBase & {
   clipPath?: string | null;
   color?: string | null;
   prompt?: string | null;
+  /** AI-generated motion clip URL (sidecar; `data` stays the static image). */
+  motion_video?: string | null;
   is_icon?: boolean | null;
   icon_type?: IconType | null;
 };

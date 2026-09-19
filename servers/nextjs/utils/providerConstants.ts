@@ -55,6 +55,16 @@ export const TTS_PROVIDERS: Record<string, TtsProviderOption> = {
   },
 };
 
+export const MOTION_VIDEO_PROVIDERS: Record<string, TtsProviderOption> = {
+  comfyui: {
+    value: "comfyui",
+    label: "ComfyUI",
+    description:
+      "Use your local ComfyUI server with a custom LTX image-to-video workflow",
+    icon: "/providers/comfyui-color.svg",
+  },
+};
+
 export const WEB_SEARCH_PROVIDERS: Record<string, WebSearchProviderOption> = {
   auto: {
     value: "auto",

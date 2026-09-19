@@ -247,6 +247,7 @@ const PresentationHeader = ({
         "pptx"
       );
       const safePptxTitle = safePptxFileName.replace(/\.pptx$/i, "");
+      let motionClipsDownloaded = false;
       if (exportRuntime === "electron") {
         await exportViaIpc("pptx", safePptxTitle);
       } else {
@@ -269,6 +270,9 @@ const PresentationHeader = ({
         }
 
         downloadLink(pptxPath, safePptxFileName);
+        motionClipsDownloaded = await downloadMotionClipsBundle(
+          safePptxTitle
+        );
       }
       await trackExportLifecycle(
         MixpanelEvent.Presentation_Export_Completed,
@@ -279,7 +283,9 @@ const PresentationHeader = ({
       );
       notify.success(
         "Export complete",
-        "Your PPTX file has been downloaded.",
+        motionClipsDownloaded
+          ? "Your PPTX file has been downloaded. Its AI motion clips were saved as a separate zip to place on the slides."
+          : "Your PPTX file has been downloaded.",
         { id: exportToastId }
       );
     } catch (error) {
@@ -537,6 +543,25 @@ const PresentationHeader = ({
       }`
     );
   };
+  // PPTX can't embed the AI motion clips with the bundled export runtime, so
+  // they're delivered as a separate zip. Never fails the PPTX export itself.
+  const downloadMotionClipsBundle = async (baseName: string) => {
+    try {
+      const response = await fetch("/api/export-motion-clips", {
+        method: "POST",
+        body: JSON.stringify({ id: presentation_id }),
+      });
+      if (!response.ok) return false;
+      const { count, path } = await response.json();
+      if (!count || !path) return false;
+      downloadLink(path, `${baseName}-motion-clips.zip`);
+      return true;
+    } catch (error) {
+      console.warn("Motion clip bundle export failed", error);
+      return false;
+    }
+  };
+
   const downloadLink = (path: string, fileName: string) => {
     const link = document.createElement("a");
     link.href = path;

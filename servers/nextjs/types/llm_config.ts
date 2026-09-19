@@ -102,6 +102,12 @@ export interface LLMConfig {
   COMFYUI_TTS_URL?: string;
   COMFYUI_TTS_WORKFLOW?: string;
 
+  // Motion Video (ComfyUI LTX) — slide image -> short motion clip for video export
+  DISABLE_MOTION_VIDEO?: boolean;
+  MOTION_VIDEO_PROVIDER?: string;
+  COMFYUI_MOTION_URL?: string;
+  COMFYUI_MOTION_WORKFLOW?: string;
+
   // Open WebUI Image Provider
   OPEN_WEBUI_IMAGE_URL?: string;
   OPEN_WEBUI_IMAGE_API_KEY?: string;

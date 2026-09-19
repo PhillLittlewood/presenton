@@ -332,6 +332,22 @@ def set_comfyui_tts_workflow_env(value):
     os.environ["COMFYUI_TTS_WORKFLOW"] = value
 
 
+def set_disable_motion_video_env(value):
+    os.environ["DISABLE_MOTION_VIDEO"] = value
+
+
+def set_motion_video_provider_env(value):
+    os.environ["MOTION_VIDEO_PROVIDER"] = value
+
+
+def set_comfyui_motion_url_env(value):
+    os.environ["COMFYUI_MOTION_URL"] = value
+
+
+def set_comfyui_motion_workflow_env(value):
+    os.environ["COMFYUI_MOTION_WORKFLOW"] = value
+
+
 def set_dall_e_3_quality_env(value):
     os.environ["DALL_E_3_QUALITY"] = value
 

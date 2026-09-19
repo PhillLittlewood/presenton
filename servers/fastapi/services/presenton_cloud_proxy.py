@@ -65,6 +65,7 @@ CLOUD_API_PATH_PREFIXES = (
 )
 CLOUD_PRIVATE_ASSET_PATH_PREFIXES = (
     "/app_data/images/",
+    "/app_data/motion/",
     "/app_data/exports/",
     "/app_data/uploads/",
     "/app_data/pptx-to-html/",

@@ -22,6 +22,7 @@ import {
   Rect,
   Text,
 } from "react-konva";
+import { resolveBackendAssetSource } from "@/utils/api";
 import { effectiveLineHeight } from "@/components/slide-editor/text/text-line-height";
 import { textRunsContent } from "@/components/slide-editor/text/text-runs";
 import { TRANSFORM_ANCHOR_ATTR } from "@/components/slide-editor/selection/transformSession";
@@ -1929,7 +1930,15 @@ function RawElementVisual({
     );
   }
   if (type === "image") {
-    return <RawImageElement element={element} width={width} height={height} interactive={interactive} />;
+    const motionVideo = readString(element.motion_video);
+    return (
+      <>
+        <RawImageElement element={element} width={width} height={height} interactive={interactive} />
+        {interactive && motionVideo ? (
+          <MotionClipBadge url={motionVideo} width={width} height={height} />
+        ) : null}
+      </>
+    );
   }
   if (type === "table") {
     return (
@@ -2161,6 +2170,48 @@ function RawTextListElement({
           />
         )
       ))}
+    </Group>
+  );
+}
+
+/**
+ * Editor-only marker for an image that has an AI motion clip attached. The
+ * canvas never plays video; clicking the badge opens the clip in a new tab.
+ * (The clip itself only replaces the image in the final video export.)
+ */
+function MotionClipBadge({
+  url,
+  width,
+  height,
+}: {
+  url: string;
+  width: number;
+  height: number;
+}) {
+  if (width < 56 || height < 40) return null;
+  const openClip = (event: Konva.KonvaEventObject<MouseEvent | Event>) => {
+    event.cancelBubble = true;
+    if (typeof window === "undefined") return;
+    window.open(resolveBackendAssetSource(url), "_blank", "noopener,noreferrer");
+  };
+  const setCursor = (event: Konva.KonvaEventObject<MouseEvent>, cursor: string) => {
+    const container = event.target.getStage()?.container();
+    if (container) container.style.cursor = cursor;
+  };
+  return (
+    <Group
+      x={width - 34}
+      y={8}
+      onClick={openClip}
+      onTap={openClip}
+      onMouseDown={(event) => {
+        event.cancelBubble = true;
+      }}
+      onMouseEnter={(event) => setCursor(event, "pointer")}
+      onMouseLeave={(event) => setCursor(event, "")}
+    >
+      <Rect width={26} height={22} cornerRadius={6} fill="rgba(17,24,39,0.78)" />
+      <Line points={[10, 6, 10, 16, 18, 11]} closed fill="#FFFFFF" />
     </Group>
   );
 }

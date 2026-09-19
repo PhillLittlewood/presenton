@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import { Button } from '../ui/button';
-import { ArrowUpRight, Blocks, Check, ChevronDown, ChevronLeft, ChevronUp, Eye, EyeOff, Info, Laptop, Loader2, Mic, Search } from 'lucide-react';
+import { ArrowUpRight, Blocks, Check, ChevronDown, ChevronLeft, ChevronUp, Eye, EyeOff, Info, Laptop, Loader2, Mic, Film, Search } from 'lucide-react';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
-import { DALLE_3_QUALITY_OPTIONS, GPT_IMAGE_1_5_QUALITY_OPTIONS, IMAGE_PROVIDERS, LLM_PROVIDERS, TTS_PROVIDERS, WEB_SEARCH_PROVIDERS } from '@/utils/providerConstants';
+import { DALLE_3_QUALITY_OPTIONS, GPT_IMAGE_1_5_QUALITY_OPTIONS, IMAGE_PROVIDERS, LLM_PROVIDERS, TTS_PROVIDERS, MOTION_VIDEO_PROVIDERS, WEB_SEARCH_PROVIDERS } from '@/utils/providerConstants';
 import { cn } from '@/lib/utils';
 import { LLMConfig } from '@/types/llm_config';
 import { RootState } from '@/store/store';
@@ -56,6 +56,7 @@ const WEB_SEARCH_PROVIDER_OPTIONS = [
 ];
 
 const TTS_PROVIDER_OPTIONS = Object.values(TTS_PROVIDERS);
+const MOTION_PROVIDER_OPTIONS = Object.values(MOTION_VIDEO_PROVIDERS);
 
 const PresentonMode = ({
     providerStep,
@@ -736,7 +737,8 @@ const PresentonMode = ({
             const validationError = getLLMConfigValidationError(llmConfig);
             if (validationError) {
                 trackEvent(MixpanelEvent.Onboarding_Validation_Failed, {
-                    step_name: "video_narration",
+                    step_name: "motion_video",
+                    motion_video_enabled: !llmConfig.DISABLE_MOTION_VIDEO,
                     web_search_enabled: !!llmConfig.WEB_GROUNDING,
                     web_search_provider: llmConfig.WEB_SEARCH_PROVIDER || "auto",
                     video_narration_enabled: !llmConfig.DISABLE_VIDEO_NARRATION,
@@ -801,8 +803,10 @@ const PresentonMode = ({
 
             notify.success("Configuration saved", "Your configuration was saved successfully.");
             trackEvent(MixpanelEvent.Onboarding_Step_Continued, {
-                from_step: "video_narration",
+                from_step: "motion_video",
                 to_step: "finish",
+                motion_video_enabled: !llmConfig.DISABLE_MOTION_VIDEO,
+                motion_video_step_skipped: !!llmConfig.DISABLE_MOTION_VIDEO,
                 video_narration_enabled: !llmConfig.DISABLE_VIDEO_NARRATION,
                 video_narration_step_skipped: !!llmConfig.DISABLE_VIDEO_NARRATION,
                 video_narration_provider: llmConfig.DISABLE_VIDEO_NARRATION ? "disabled" : llmConfig.VIDEO_NARRATION_PROVIDER || "comfyui",
@@ -894,13 +898,24 @@ const PresentonMode = ({
             setProviderStep(4);
             return;
         }
+        if (providerStep === 4) {
+            trackEvent(MixpanelEvent.Onboarding_Step_Continued, {
+                from_step: "video_narration",
+                to_step: "motion_video",
+                video_narration_enabled: !llmConfig.DISABLE_VIDEO_NARRATION,
+                video_narration_step_skipped: !!llmConfig.DISABLE_VIDEO_NARRATION,
+                video_narration_provider: llmConfig.DISABLE_VIDEO_NARRATION ? "disabled" : llmConfig.VIDEO_NARRATION_PROVIDER || "comfyui",
+            });
+            setProviderStep(5);
+            return;
+        }
         await handleSaveConfig();
     };
 
     const handleBack = () => {
         trackEvent(MixpanelEvent.Onboarding_Back_Clicked, {
-            from_step: providerStep === 1 ? "text_provider" : providerStep === 2 ? "image_provider" : providerStep === 3 ? "web_search" : "video_narration",
-            to_step: providerStep === 1 ? "text_provider" : providerStep === 2 ? "text_provider" : providerStep === 3 ? "image_provider" : "web_search",
+            from_step: providerStep === 1 ? "text_provider" : providerStep === 2 ? "image_provider" : providerStep === 3 ? "web_search" : providerStep === 4 ? "video_narration" : "motion_video",
+            to_step: providerStep === 1 ? "text_provider" : providerStep === 2 ? "text_provider" : providerStep === 3 ? "image_provider" : providerStep === 4 ? "web_search" : "video_narration",
             source: "footer_button",
         });
         if (providerStep > 1) {
@@ -1086,6 +1101,61 @@ const PresentonMode = ({
         );
     };
 
+
+    const selectedMotionProvider = MOTION_PROVIDER_OPTIONS.find(
+        (provider) => provider.value === llmConfig.MOTION_VIDEO_PROVIDER
+    );
+
+    const renderSelectedMotionProviderConfig = () => {
+        if (!selectedMotionProvider || selectedMotionProvider.value !== "comfyui") return null;
+
+        return (
+            <div className="col-span-full rounded-[10px] border border-[#EDEEEF] bg-[#FBFBFD] p-4 shadow-[0_12px_28px_rgba(16,19,35,0.04)]">
+                <div className="mb-4">
+                    <p className="text-sm font-semibold text-[#191919]">{selectedMotionProvider.label} setup</p>
+                    <p className="mt-1 text-xs leading-5 text-gray-500">
+                        {selectedMotionProvider.description}
+                    </p>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                            ComfyUI Server URL
+                        </label>
+                        <input
+                            type="text"
+                            value={llmConfig.COMFYUI_MOTION_URL || ""}
+                            onChange={(event) => setLlmConfig(prev => ({ ...prev, COMFYUI_MOTION_URL: event.target.value }))}
+                            className="h-12 w-full rounded-lg border border-gray-300 px-4 outline-none transition-colors focus:border-[#7A5AF8] focus:ring-2 focus:ring-[#7A5AF8]/20"
+                            placeholder="Defaults to your Image Provider's ComfyUI URL if left blank"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Workflow JSON
+                        </label>
+                        <textarea
+                            value={llmConfig.COMFYUI_MOTION_WORKFLOW || ""}
+                            onChange={(event) => setLlmConfig(prev => ({ ...prev, COMFYUI_MOTION_WORKFLOW: event.target.value }))}
+                            rows={6}
+                            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 font-mono text-xs outline-none transition-colors focus:border-[#7A5AF8] focus:ring-2 focus:ring-[#7A5AF8]/20"
+                            placeholder='Paste your ComfyUI LTX image-to-video workflow JSON here (export via "Export (API)" in ComfyUI)'
+                        />
+                        <p className="mt-2 text-xs leading-5 text-gray-500">
+                            The image node that receives the slide image (the LTX start frame) must be titled &quot;Input Image&quot;. An optional text node titled &quot;Motion Prompt&quot; receives the motion description.
+                        </p>
+                    </div>
+
+                    <div className="rounded-lg border border-[#D9D6FE] bg-[#F4F3FF] p-3 text-xs leading-5 text-[#5146E5]">
+                        Clips are generated from an image&apos;s toolbar in the editor and only play in exported videos. If generation fails, the static image is used.
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     useEffect(() => {
         llmConfigRef.current = llmConfig;
     }, [llmConfig]);
@@ -1099,7 +1169,9 @@ const PresentonMode = ({
                     ? "image_provider"
                     : providerStep === 3
                         ? "web_search"
-                        : "video_narration";
+                        : providerStep === 4
+                            ? "video_narration"
+                            : "motion_video";
         const stepProps =
             providerStep === 1
                 ? {
@@ -1118,11 +1190,17 @@ const PresentonMode = ({
                             web_search_step_skipped: !config.WEB_GROUNDING,
                             web_search_provider: config.WEB_GROUNDING ? config.WEB_SEARCH_PROVIDER || "auto" : "disabled",
                         }
-                        : {
-                            video_narration_enabled: !config.DISABLE_VIDEO_NARRATION,
-                            video_narration_step_skipped: !!config.DISABLE_VIDEO_NARRATION,
-                            video_narration_provider: config.DISABLE_VIDEO_NARRATION ? "disabled" : config.VIDEO_NARRATION_PROVIDER || "comfyui",
-                        };
+                        : providerStep === 4
+                            ? {
+                                video_narration_enabled: !config.DISABLE_VIDEO_NARRATION,
+                                video_narration_step_skipped: !!config.DISABLE_VIDEO_NARRATION,
+                                video_narration_provider: config.DISABLE_VIDEO_NARRATION ? "disabled" : config.VIDEO_NARRATION_PROVIDER || "comfyui",
+                            }
+                            : {
+                                motion_video_enabled: !config.DISABLE_MOTION_VIDEO,
+                                motion_video_step_skipped: !!config.DISABLE_MOTION_VIDEO,
+                                motion_video_provider: config.DISABLE_MOTION_VIDEO ? "disabled" : config.MOTION_VIDEO_PROVIDER || "comfyui",
+                            };
 
         trackEvent(MixpanelEvent.Onboarding_Step_Viewed, {
             step_name: stepName,
@@ -1180,6 +1258,14 @@ const PresentonMode = ({
         },
         [] as Array<Array<(typeof TTS_PROVIDER_OPTIONS)[number]>>
     );
+    const motionProviderRows = MOTION_PROVIDER_OPTIONS.reduce(
+        (rows, provider, index) => {
+            if (index % 3 === 0) rows.push([]);
+            rows[rows.length - 1].push(provider);
+            return rows;
+        },
+        [] as Array<Array<(typeof MOTION_PROVIDER_OPTIONS)[number]>>
+    );
 
     return (
         <div className='w-full max-w-[660px] font-syne pb-10'>
@@ -1187,7 +1273,7 @@ const PresentonMode = ({
             <div className=''>
 
                 <h2 className='mb-4 text-black text-[26px] font-normal font-unbounded '>
-                    {providerStep === 1 ? "Choose how you want to create" : providerStep === 2 ? "Choose your image provider" : providerStep === 3 ? "Configure web search" : "Configure video narration"}
+                    {providerStep === 1 ? "Choose how you want to create" : providerStep === 2 ? "Choose your image provider" : providerStep === 3 ? "Configure web search" : providerStep === 4 ? "Configure video narration" : "Configure motion video"}
                 </h2>
                 <p className='text-[#000000CC] text-xl font-normal font-syne'>
                     {providerStep === 1
@@ -1196,7 +1282,9 @@ const PresentonMode = ({
                             ? "Choose how Presenton creates visuals, or continue without image generation."
                             : providerStep === 3
                                 ? "Add current web context to presentations, or continue with web search disabled."
-                                : "Turn slide notes into narration for video export, or continue without it."}
+                                : providerStep === 4
+                                    ? "Turn slide notes into narration for video export, or continue without it."
+                                    : "Animate slide images into motion clips for video export, or continue without it."}
                 </p>
             </div>
 
@@ -1925,6 +2013,87 @@ const PresentonMode = ({
                 </div>
             )}
 
+            {providerStep === 5 && (
+                <div className={`relative rounded-[11px] border border-[#EDEEEF] p-3 ${!llmConfig.DISABLE_MOTION_VIDEO ? "bg-white" : "bg-[#F9FAFB]"}`}>
+                    <ToolTip content="Enable/Disable Motion Video" className='absolute right-3 top-3 flex items-center justify-end'>
+                        <div className='flex items-center justify-end'>
+                            <Switch
+                                checked={!llmConfig.DISABLE_MOTION_VIDEO}
+                                className='data-[state=checked]:bg-[#4791FF] h-[22px] w-[36px] data-[state=unchecked]:bg-[#E2E0E1]'
+                                onCheckedChange={(checked) => {
+                                    trackEvent(MixpanelEvent.Onboarding_Motion_Video_Toggled, {
+                                        enabled: checked,
+                                        motion_video_step_skipped: !checked,
+                                    });
+                                    setLlmConfig(prev => ({
+                                        ...prev,
+                                        DISABLE_MOTION_VIDEO: !checked,
+                                        MOTION_VIDEO_PROVIDER: checked && !prev.MOTION_VIDEO_PROVIDER ? "comfyui" : prev.MOTION_VIDEO_PROVIDER,
+                                    }));
+                                }}
+                            />
+                        </div>
+                    </ToolTip>
+                    <div className="mb-[42px] flex items-center gap-6">
+                        <div className='flex h-[74px] w-[74px] items-center justify-center rounded-[4px] bg-[#F4F3FF]'>
+                            <Film className="h-9 w-9 text-[#5146E5]" />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-normal text-[#191919]">Motion Video Settings</h3>
+                            <p className="text-sm text-gray-500">Animate slide images into short motion clips for video export</p>
+                        </div>
+                    </div>
+                    {!llmConfig.DISABLE_MOTION_VIDEO && <div className="space-y-4">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-gray-700">Select Motion Provider</label>
+                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                                    {motionProviderRows.map((row, rowIndex) => (
+                                        <React.Fragment key={`motion-provider-row-${rowIndex}`}>
+                                            {row.map((provider) => (
+                                                <button
+                                                    type="button"
+                                                    key={provider.value}
+                                                    onClick={() => {
+                                                        trackEvent(MixpanelEvent.Onboarding_Motion_Video_Provider_Selected, {
+                                                            motion_video_provider: provider.value,
+                                                            motion_video_provider_label: provider.label,
+                                                        });
+                                                        setLlmConfig(prev => ({
+                                                            ...prev,
+                                                            DISABLE_MOTION_VIDEO: false,
+                                                            MOTION_VIDEO_PROVIDER: provider.value,
+                                                        }));
+                                                    }}
+                                                    className={cn(
+                                                        "group flex min-h-32 flex-col items-center justify-center gap-2 rounded-[10px] border p-3 text-center transition-all hover:border-[#D9D6FE] hover:bg-[#F7F6F9]",
+                                                        selectedMotionProvider?.value === provider.value
+                                                            ? "border-[#7A5AF8] bg-[#F4F3FF] shadow-[0_10px_24px_rgba(122,90,248,0.12)]"
+                                                            : "border-[#EDEEEF] bg-white"
+                                                    )}
+                                                >
+                                                    <span
+                                                        className={cn(
+                                                            "flex h-10 w-10 items-center justify-center rounded-lg border bg-white transition-colors",
+                                                            selectedMotionProvider?.value === provider.value
+                                                                ? "border-[#D9D6FE]"
+                                                                : "border-[#EDEEEF] group-hover:border-[#D9D6FE]"
+                                                        )}
+                                                    >
+                                                        {provider.icon && <img src={provider.icon} alt="" className="h-7 w-7 object-contain" />}
+                                                    </span>
+                                                    <span className="text-xs font-semibold text-[#191919]">{provider.label}</span>
+                                                    <span className="line-clamp-2 text-[10px] leading-4 text-gray-500">{provider.description}</span>
+                                                </button>
+                                            ))}
+                                            {row.some((provider) => provider.value === selectedMotionProvider?.value) && renderSelectedMotionProviderConfig()}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>}
+                </div>
+            )}
+
             <div className='fixed bottom-16 mr-8  max-w-[1440px]  right-16 flex justify-end items-center gap-2.5 '>
                 {providerStep > 1 && (
                     <button
@@ -1946,7 +2115,9 @@ const PresentonMode = ({
                             ? llmConfig.DISABLE_IMAGE_GENERATION ? "Disable image generation & Continue" : "Continue to web search"
                             : providerStep === 3
                                 ? llmConfig.WEB_GROUNDING ? "Continue to video narration" : "Disable web search & Continue"
-                                : llmConfig.DISABLE_VIDEO_NARRATION ? "Disable narration & Finish" : "Save & Finish"}
+                                : providerStep === 4
+                                    ? llmConfig.DISABLE_VIDEO_NARRATION ? "Disable narration & Continue" : "Continue to motion video"
+                                    : llmConfig.DISABLE_MOTION_VIDEO ? "Disable motion video & Finish" : "Save & Finish"}
                 </button>
             </div>
         </div>

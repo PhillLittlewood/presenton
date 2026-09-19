@@ -106,6 +106,12 @@ class UserConfig(BaseModel):
     COMFYUI_TTS_URL: Optional[str] = None
     COMFYUI_TTS_WORKFLOW: Optional[str] = None
 
+    # Motion Video (ComfyUI LTX image-to-video)
+    DISABLE_MOTION_VIDEO: Optional[bool] = None
+    MOTION_VIDEO_PROVIDER: Optional[str] = None
+    COMFYUI_MOTION_URL: Optional[str] = None
+    COMFYUI_MOTION_WORKFLOW: Optional[str] = None
+
     # Open WebUI Image Provider
     OPEN_WEBUI_IMAGE_URL: Optional[str] = None
     OPEN_WEBUI_IMAGE_API_KEY: Optional[str] = None

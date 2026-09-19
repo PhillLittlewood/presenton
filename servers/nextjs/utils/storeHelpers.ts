@@ -40,6 +40,12 @@ export const normalizeLLMConfig = (llmConfig: LLMConfig): LLMConfig => {
   if (parsedDisableVideoNarration !== undefined) {
     normalizedConfig.DISABLE_VIDEO_NARRATION = parsedDisableVideoNarration;
   }
+  const parsedDisableMotionVideo = parseOptionalBool(
+    (normalizedConfig as Record<string, unknown>).DISABLE_MOTION_VIDEO
+  );
+  if (parsedDisableMotionVideo !== undefined) {
+    normalizedConfig.DISABLE_MOTION_VIDEO = parsedDisableMotionVideo;
+  }
   const parsedWebGrounding = parseOptionalBool(
     (normalizedConfig as Record<string, unknown>).WEB_GROUNDING
   );

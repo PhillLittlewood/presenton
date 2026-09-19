@@ -215,6 +215,16 @@ def get_videos_directory():
     return _owned_directory("videos")
 
 
+def get_motion_videos_directory():
+    """
+    Owner-scoped directory for AI-generated slide motion clips. Unlike the
+    exported-video directory these are served straight to the browser via
+    /app_data/motion/..., so "motion" is a PRIVATE_APP_DATA_ROOT in
+    api/v1/auth/assets.py (same per-owner authorization as images).
+    """
+    return _owned_directory("motion")
+
+
 def get_videos_root_directory():
     """
     Unscoped root of the videos directory (no per-owner subfolder), used to

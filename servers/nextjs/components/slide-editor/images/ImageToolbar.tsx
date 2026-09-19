@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   Crop,
+  Film,
   FlipHorizontal2,
   FlipVertical2,
   Loader2,
@@ -40,6 +41,7 @@ import {
 } from "@/components/slide-editor/toolbar/FloatingToolbar";
 import { OpacitySwatchIcon } from "@/components/slide-editor/toolbar/OpacitySwatchIcon";
 import { ImagePickerModal } from "@/components/slide-editor/images/ImagePickerModal";
+import MotionClipModal from "@/components/slide-editor/images/MotionClipModal";
 import { resolveBackendAssetSource } from "@/utils/api";
 import { ImagesApi } from "@/app/(presentation-generator)/services/api/images";
 import { notify } from "@/components/ui/sonner";
@@ -297,6 +299,7 @@ export function ImageToolbar({
 }) {
   const [openPanel, setOpenPanel] = useState<ImagePanel>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const [motionClipOpen, setMotionClipOpen] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const fit = element.fit ?? "contain";
   const maxRadius = Math.max(
@@ -648,6 +651,23 @@ export function ImageToolbar({
           />
         </button>
 
+        <button
+          type="button"
+          title={element.motion_video ? "Edit motion clip" : "Generate motion clip"}
+          aria-label={element.motion_video ? "Edit motion clip" : "Generate motion clip"}
+          aria-pressed={Boolean(element.motion_video)}
+          onClick={() => {
+            setOpenPanel(null);
+            setMotionClipOpen(true);
+          }}
+          className={cn(
+            "rounded-[2px] border-0 bg-transparent p-1 text-[#05070A] hover:bg-[#F4F3FF]",
+            element.motion_video && "bg-[#F4F1FF] text-[#7C3AED]",
+          )}
+        >
+          <Film size={16} strokeWidth={1.7} aria-hidden="true" />
+        </button>
+
         <Divider />
         <div className="flex items-center gap-3">
           <button
@@ -847,6 +867,14 @@ export function ImageToolbar({
           />
         </>
       ) : null}
+      <MotionClipModal
+        open={motionClipOpen}
+        imageUrl={element.data}
+        imagePrompt={element.prompt}
+        motionVideo={element.motion_video}
+        onClose={() => setMotionClipOpen(false)}
+        onChange={(motionVideo) => update({ motion_video: motionVideo })}
+      />
       <ImagePickerModal
         open={imagePickerOpen}
         currentImage={element.data}

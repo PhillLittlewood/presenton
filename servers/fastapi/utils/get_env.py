@@ -398,6 +398,24 @@ def get_video_narration_provider_env():
     return os.getenv("VIDEO_NARRATION_PROVIDER")
 
 
+# ComfyUI motion clips (LTX image-to-video for slide images). Same fallback
+# convention as TTS: use COMFYUI_URL when no dedicated server is configured.
+def get_comfyui_motion_url_env():
+    return os.getenv("COMFYUI_MOTION_URL") or get_comfyui_url_env()
+
+
+def get_comfyui_motion_workflow_env():
+    return os.getenv("COMFYUI_MOTION_WORKFLOW")
+
+
+def get_disable_motion_video_env():
+    return os.getenv("DISABLE_MOTION_VIDEO")
+
+
+def get_motion_video_provider_env():
+    return os.getenv("MOTION_VIDEO_PROVIDER")
+
+
 def get_ffmpeg_binary_env():
     return os.getenv("FFMPEG_BINARY", "ffmpeg")
 
@@ -413,6 +431,16 @@ def get_video_narration_max_concurrency_env() -> int:
     except (TypeError, ValueError):
         return 2
     return value if value > 0 else 2
+
+
+def get_motion_video_max_concurrency_env() -> int:
+    # LTX shares the ComfyUI GPU with image gen and TTS, so default to serial.
+    raw = os.getenv("VIDEO_MOTION_MAX_CONCURRENCY", "1")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return value if value > 0 else 1
 
 
 # Dalle 3 Quality
