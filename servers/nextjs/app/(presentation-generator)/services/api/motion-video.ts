@@ -34,6 +34,7 @@ export class MotionVideoApi {
   static async suggestPrompt(
     imagePrompt: string | null | undefined,
     slideContext?: string,
+    signal?: AbortSignal,
   ): Promise<string> {
     const response = await fetch(
       getApiUrl("/api/v1/ppt/motion-video/suggest-prompt"),
@@ -44,6 +45,7 @@ export class MotionVideoApi {
           image_prompt: imagePrompt ?? null,
           slide_context: slideContext ?? null,
         }),
+        signal,
       },
     );
     const result = (await ApiResponseHandler.handleResponse(
@@ -62,6 +64,7 @@ export class MotionVideoApi {
     params: {
       imageUrl: string;
       motionPrompt: string;
+      durationSeconds?: number | null;
       previousMotionVideo?: string | null;
     },
     options?: { signal?: AbortSignal; onProgress?: (message: string) => void },
@@ -74,6 +77,7 @@ export class MotionVideoApi {
         body: JSON.stringify({
           image_url: params.imageUrl,
           motion_prompt: params.motionPrompt || null,
+          duration_seconds: params.durationSeconds ?? null,
           previous_motion_video: params.previousMotionVideo ?? null,
         }),
         signal: options?.signal,

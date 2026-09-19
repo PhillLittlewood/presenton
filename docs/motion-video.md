@@ -13,9 +13,19 @@ Settings → **Motion Video** (or onboarding step 5), or env vars:
 | `DISABLE_MOTION_VIDEO` | Turns the feature off (export then ignores existing clips) |
 | `VIDEO_MOTION_MAX_CONCURRENCY` | Simultaneous generations, default `1` (image gen, TTS and LTX share one GPU) |
 
-Workflow node titles: **`Input Image`** (required; a LoadImage-style node that receives the
-slide image as the start frame) and **`Motion Prompt`** (optional text node).
-The workflow must contain a save-video node that writes an `.mp4`/`.webm` output.
+Workflow node titles (same "Input Prompt" convention as image generation and narration):
+
+| Title | Type | Required | Filled with |
+| --- | --- | --- | --- |
+| `Load Image` | LoadImage | yes | the slide image (LTX start frame) |
+| `Input Prompt` | text/string | no | the motion prompt |
+| `Width`, `Height` | int | no | pixel size chosen from the image's aspect ratio (~720p worth of pixels, multiples of 32; exactly 1280x720 for 16:9) |
+| `Duration` | int | no | clip length in seconds (modal field, default 5) |
+
+`Input Image` and `Motion Prompt` are accepted as aliases. Only nodes holding a literal number
+are written; int nodes wired to another node (e.g. inside a subgraph) follow their source.
+The workflow must contain a save-video node that writes an `.mp4`/`.webm` output. Any audio LTX
+produces is discarded.
 
 ## Use
 Select an image → **Film** button in the image toolbar → review/edit the suggested motion

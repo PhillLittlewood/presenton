@@ -7,6 +7,12 @@ import { MotionVideoApi } from "@/app/(presentation-generator)/services/api/moti
 import { notify } from "@/components/ui/sonner";
 import { resolveBackendAssetSource } from "@/utils/api";
 
+// A slow or unreachable text LLM must not block generation.
+const SUGGEST_TIMEOUT_MS = 25_000;
+const DEFAULT_DURATION_SECONDS = 5;
+const MIN_DURATION_SECONDS = 2;
+const MAX_DURATION_SECONDS = 10;
+
 type Phase = "checking" | "unavailable" | "ready" | "suggesting" | "generating";
 
 /**
@@ -35,16 +41,23 @@ export default function MotionClipModal({
   const [phase, setPhase] = useState<Phase>("checking");
   const [prompt, setPrompt] = useState("");
   const [progress, setProgress] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [duration, setDuration] = useState(DEFAULT_DURATION_SECONDS);
   const abortRef = useRef<AbortController | null>(null);
 
   const suggest = useCallback(async () => {
     setPhase("suggesting");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT_MS);
     try {
-      setPrompt(await MotionVideoApi.suggestPrompt(imagePrompt));
+      setPrompt(
+        await MotionVideoApi.suggestPrompt(imagePrompt, undefined, controller.signal),
+      );
     } catch (error) {
       // Suggestion is a convenience; the user can still type their own.
       console.warn("Motion prompt suggestion failed", error);
     } finally {
+      clearTimeout(timeout);
       setPhase("ready");
     }
   }, [imagePrompt]);
@@ -54,6 +67,7 @@ export default function MotionClipModal({
     let cancelled = false;
     setPrompt("");
     setProgress("");
+    setError(null);
     setPhase("checking");
     MotionVideoApi.getStatus()
       .then((status) => {
@@ -77,7 +91,11 @@ export default function MotionClipModal({
   const generating = phase === "generating";
 
   const handleGenerate = async () => {
-    if (!imageUrl) return;
+    if (!imageUrl) {
+      setError("This image has no source to animate. Try replacing the image first.");
+      return;
+    }
+    setError(null);
     const controller = new AbortController();
     abortRef.current = controller;
     setPhase("generating");
@@ -87,6 +105,7 @@ export default function MotionClipModal({
         {
           imageUrl,
           motionPrompt: prompt.trim(),
+          durationSeconds: duration,
           previousMotionVideo: motionVideo,
         },
         { signal: controller.signal, onProgress: setProgress },
@@ -100,10 +119,9 @@ export default function MotionClipModal({
         return;
       }
       // The still image (and any previous clip) is left untouched.
-      notify.error(
-        "Motion clip failed",
-        error instanceof Error ? error.message : "Generation failed",
-      );
+      const message = error instanceof Error ? error.message : "Generation failed";
+      setError(message);
+      notify.error("Motion clip failed", message);
       setPhase("ready");
     } finally {
       abortRef.current = null;
@@ -127,8 +145,32 @@ export default function MotionClipModal({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[120] bg-black/40" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[121] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-[16px] bg-white p-6 shadow-xl outline-none">
+        {/*
+          The editor clears the selection (unmounting the image toolbar that
+          hosts this modal) on any pointerdown outside the slide unless the
+          target is inside one of these marked elements — same contract as
+          ImagePickerModal. Stacking is above the floating toolbar (10000/10001).
+        */}
+        <DialogPrimitive.Overlay
+          data-template-v2-floating-toolbar="true"
+          data-inline-edit-ignore="true"
+          className="fixed inset-0 z-[10050] bg-black/40"
+        />
+        <DialogPrimitive.Content
+          data-template-v2-floating-toolbar="true"
+          data-inline-edit-ignore="true"
+          style={{ translate: "none" }}
+          onPointerDown={(event) => event.stopPropagation()}
+          // Don't lose an in-flight generation to a stray click or Escape;
+          // "Stop waiting" is the explicit way out.
+          onInteractOutside={(event) => {
+            if (generating) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (generating) event.preventDefault();
+          }}
+          className="fixed left-1/2 top-1/2 z-[10051] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-[16px] bg-white p-6 shadow-xl outline-none"
+        >
           <div className="mb-4 flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-[#F4F3FF]">
@@ -194,6 +236,30 @@ export default function MotionClipModal({
                 />
               </div>
 
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor="motion-duration" className="text-sm font-medium text-gray-700">
+                  Length (seconds)
+                </label>
+                <input
+                  id="motion-duration"
+                  type="number"
+                  min={MIN_DURATION_SECONDS}
+                  max={MAX_DURATION_SECONDS}
+                  step={1}
+                  value={duration}
+                  disabled={phase !== "ready"}
+                  onChange={(event) => {
+                    const next = Math.round(Number(event.target.value));
+                    if (Number.isFinite(next)) {
+                      setDuration(
+                        Math.min(MAX_DURATION_SECONDS, Math.max(MIN_DURATION_SECONDS, next)),
+                      );
+                    }
+                  }}
+                  className="w-20 rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:bg-gray-50"
+                />
+              </div>
+
               {motionVideo ? (
                 <div className="flex items-center justify-between rounded-lg bg-[#F9F8F8] p-3 text-sm">
                   <a
@@ -213,6 +279,12 @@ export default function MotionClipModal({
                     <Trash2 className="h-3.5 w-3.5" /> Remove
                   </button>
                 </div>
+              ) : null}
+
+              {error ? (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {error}
+                </p>
               ) : null}
 
               {generating ? (

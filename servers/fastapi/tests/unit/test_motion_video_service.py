@@ -137,5 +137,55 @@ def test_motion_prompt_node_is_optional():
 
 def test_missing_input_image_node_is_a_clear_error():
     svc = MotionVideoService()
-    with pytest.raises(MotionVideoGenerationError, match="Input Image"):
+    with pytest.raises(MotionVideoGenerationError, match="Load Image"):
         svc._inject_image({"1": {"class_type": "LoadImage", "inputs": {"image": "x"}}}, "y.png")
+
+
+# Titles exactly as used by the LTX workflow shipped with the docs: top-level
+# literal nodes plus subgraph inner nodes that are wired to them.
+LTX_WORKFLOW = {
+    "269": {"class_type": "LoadImage", "inputs": {"image": "old.png"}, "_meta": {"title": "Load Image"}},
+    "331": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "men dancing"}, "_meta": {"title": "Input Prompt"}},
+    "334": {"class_type": "PrimitiveInt", "inputs": {"value": 0}, "_meta": {"title": "Width"}},
+    "335": {"class_type": "PrimitiveInt", "inputs": {"value": 0}, "_meta": {"title": "Height"}},
+    "336": {"class_type": "PrimitiveInt", "inputs": {"value": 5}, "_meta": {"title": "Duration"}},
+    "320:312": {"class_type": "PrimitiveInt", "inputs": {"value": ["334", 0]}, "_meta": {"title": "Width"}},
+    "320:299": {"class_type": "PrimitiveInt", "inputs": {"value": ["335", 0]}, "_meta": {"title": "Height"}},
+    "320:301": {"class_type": "PrimitiveInt", "inputs": {"value": ["336", 0]}, "_meta": {"title": "Duration"}},
+    "320:319": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": ["331", 0]}, "_meta": {"title": "Prompt"}},
+}
+
+
+def test_ltx_workflow_titles_are_filled_and_wired_nodes_left_alone():
+    import copy
+
+    svc = MotionVideoService()
+    wf = copy.deepcopy(LTX_WORKFLOW)
+    svc._inject_image(wf, "uploaded.png")
+    svc._inject_motion_prompt(wf, "two men dancing")
+    assert svc._inject_int(wf, "width", 1120) == 1
+    assert svc._inject_int(wf, "height", 832) == 1
+    assert svc._inject_int(wf, "duration", 6) == 1
+
+    assert wf["269"]["inputs"]["image"] == "uploaded.png"
+    assert wf["331"]["inputs"]["value"] == "two men dancing"
+    assert [wf[k]["inputs"]["value"] for k in ("334", "335", "336")] == [1120, 832, 6]
+    # Subgraph inner nodes keep pointing at their source nodes.
+    assert wf["320:312"]["inputs"]["value"] == ["334", 0]
+    assert wf["320:319"]["inputs"]["value"] == ["331", 0]
+
+
+def test_generation_size_follows_the_image_aspect_ratio(tmp_path):
+    pick = MotionVideoService._pick_generation_size
+
+    def size_for(w, h):
+        path = tmp_path / f"{w}x{h}.png"
+        Image.new("RGB", (w, h)).save(path)
+        return pick(str(path))
+
+    assert size_for(1920, 1080) == (1280, 720)  # stock 16:9 size
+    w, h = size_for(1000, 1000)
+    assert w == h and w % 32 == 0
+    w, h = size_for(900, 1600)  # portrait stays portrait
+    assert h > w and w % 32 == 0 and h % 32 == 0
+    assert pick(str(tmp_path / "missing.png")) == (1280, 720)

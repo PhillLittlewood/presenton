@@ -14,10 +14,16 @@ Required environment variables:
 - COMFYUI_MOTION_URL: ComfyUI server URL (falls back to COMFYUI_URL if unset)
 - COMFYUI_MOTION_WORKFLOW: Workflow JSON (API format). Node-title convention,
   consistent with "Input Prompt" for image gen / narration:
-    * "Input Image"   (required) - a LoadImage-style node; its image field
-      receives the uploaded slide image as the LTX start frame.
-    * "Motion Prompt" (optional) - a text node that receives the motion
-      prompt. If absent, the workflow's own prompt is used unchanged.
+    * "Load Image"   (required) - a LoadImage node; receives the uploaded slide
+      image as the LTX start frame. ("Input Image" is also accepted.)
+    * "Input Prompt" (optional) - a text node that receives the motion prompt.
+      ("Motion Prompt" is also accepted.) If absent, the workflow's own prompt
+      is used unchanged.
+    * "Width" / "Height" (optional, int nodes) - set from the slide image's
+      aspect ratio so the clip lines up with the image.
+    * "Duration" (optional, int node) - clip length in seconds.
+  Only nodes holding a literal number are written; int nodes that are wired to
+  another node (subgraph inner nodes) are left alone and follow their source.
 - VIDEO_MOTION_MAX_CONCURRENCY: max simultaneous motion generations
   (default 1, since image gen / TTS / LTX share one ComfyUI GPU).
 """
@@ -43,8 +49,22 @@ LOGGER = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v")
 
-INPUT_IMAGE_NODE_TITLE = "input image"
-MOTION_PROMPT_NODE_TITLE = "motion prompt"
+INPUT_IMAGE_NODE_TITLES = ("load image", "input image")
+# Preference order. ComfyUI's LTX template calls its text node just "Prompt";
+# that is accepted last (it often only forwards from an "Input Prompt" node).
+MOTION_PROMPT_NODE_TITLES = ("input prompt", "motion prompt", "prompt")
+WIDTH_NODE_TITLE = "width"
+HEIGHT_NODE_TITLE = "height"
+DURATION_NODE_TITLE = "duration"
+
+# LTX works on pixel dimensions divisible by 32; the workflow also halves them
+# for the base pass before the x2 latent upscale. Aim for ~720p worth of pixels
+# whatever the image's aspect ratio.
+_TARGET_PIXELS = 1280 * 720
+_DIMENSION_MULTIPLE = 32
+_MIN_DIMENSION = 256
+_MAX_DIMENSION = 1920
+DEFAULT_DURATION_SECONDS = 5
 
 # LTX is slow; give it far more headroom than TTS/image generation.
 DEFAULT_TIMEOUT_SECONDS = 1800
@@ -83,6 +103,7 @@ class MotionVideoService:
         image_path: str,
         motion_prompt: Optional[str],
         output_directory: str,
+        duration_seconds: Optional[int] = None,
     ) -> str:
         """
         Generate a silent motion clip whose first frame is `image_path`.
@@ -119,6 +140,15 @@ class MotionVideoService:
                     workflow = self._inject_motion_prompt(
                         workflow, motion_prompt.strip()
                     )
+                width, height = self._pick_generation_size(image_path)
+                self._inject_int(workflow, WIDTH_NODE_TITLE, width)
+                self._inject_int(workflow, HEIGHT_NODE_TITLE, height)
+                if duration_seconds:
+                    self._inject_int(workflow, DURATION_NODE_TITLE, duration_seconds)
+                LOGGER.info(
+                    "Motion workflow prepared: image=%s size=%sx%s duration=%ss",
+                    uploaded_name, width, height, duration_seconds or "workflow default",
+                )
                 prompt_id = await self._submit_workflow(session, comfyui_url, workflow)
                 status_data = await self._wait_for_completion(
                     session, comfyui_url, prompt_id
@@ -149,12 +179,57 @@ class MotionVideoService:
             and _norm(node.get("_meta", {}).get("title")) == title
         ]
 
+    @staticmethod
+    def _pick_generation_size(image_path: str) -> tuple[int, int]:
+        """Width/height for the LTX run, matching the slide image's aspect ratio."""
+        from PIL import Image
+
+        try:
+            with Image.open(image_path) as img:
+                src_w, src_h = img.size
+        except Exception:
+            return 1280, 720
+        if src_w <= 0 or src_h <= 0:
+            return 1280, 720
+
+        ratio = src_w / src_h
+        if abs(ratio - 16 / 9) < 0.01:
+            return 1280, 720  # the size the stock LTX workflow is built for
+
+        width = (_TARGET_PIXELS * ratio) ** 0.5
+        height = width / ratio
+
+        def snap(value: float) -> int:
+            snapped = int(round(value / _DIMENSION_MULTIPLE)) * _DIMENSION_MULTIPLE
+            return max(_MIN_DIMENSION, min(_MAX_DIMENSION, snapped))
+
+        return snap(width), snap(height)
+
+    def _inject_int(self, workflow: dict, title: str, value: int) -> int:
+        """Set every literal-valued int node with this title; returns how many."""
+        changed = 0
+        for node in self._nodes_titled(workflow, title):
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+            current = inputs.get("value")
+            # Wired inputs ([node_id, slot]) follow their source node; bools are
+            # ints in Python but never a size.
+            if isinstance(current, (int, float)) and not isinstance(current, bool):
+                inputs["value"] = int(value)
+                changed += 1
+        return changed
+
     def _inject_image(self, workflow: dict, uploaded_name: str) -> dict:
-        nodes = self._nodes_titled(workflow, INPUT_IMAGE_NODE_TITLE)
+        nodes = [
+            node
+            for title in INPUT_IMAGE_NODE_TITLES
+            for node in self._nodes_titled(workflow, title)
+        ]
         if not nodes:
             raise MotionVideoGenerationError(
-                "Could not find node with title 'Input Image' in the motion "
-                "workflow. Rename your LoadImage node to 'Input Image'."
+                "Could not find a node titled 'Load Image' in the motion "
+                "workflow. Rename your LoadImage node to 'Load Image'."
             )
         for node in nodes:
             inputs = node.setdefault("inputs", {})
@@ -163,7 +238,7 @@ class MotionVideoService:
                     inputs[key] = uploaded_name
                     return workflow
         raise MotionVideoGenerationError(
-            "Found 'Input Image' node, but it has no writable image filename field."
+            "Found the 'Load Image' node, but it has no writable image filename field."
         )
 
     def _inject_motion_prompt(self, workflow: dict, text: str) -> dict:
@@ -198,20 +273,24 @@ class MotionVideoService:
                     return True
             return False
 
-        for node_id, node in index.items():
-            if (
-                isinstance(node, dict)
-                and _norm(node.get("_meta", {}).get("title")) == MOTION_PROMPT_NODE_TITLE
-            ):
-                if try_set(node_id):
-                    return workflow
-                raise MotionVideoGenerationError(
-                    "Found 'Motion Prompt' node, but no writable text field was "
-                    "found directly or through linked nodes."
-                )
-        # Optional node: no 'Motion Prompt' title means the workflow's own
-        # baked-in prompt is used.
-        LOGGER.info("Motion workflow has no 'Motion Prompt' node; using its own prompt")
+        for title in MOTION_PROMPT_NODE_TITLES:
+            for node_id, node in index.items():
+                if (
+                    isinstance(node, dict)
+                    and _norm(node.get("_meta", {}).get("title")) == title
+                ):
+                    if try_set(node_id):
+                        return workflow
+                    raise MotionVideoGenerationError(
+                        f"Found '{node.get('_meta', {}).get('title')}' node, but no "
+                        "writable text field was found directly or through linked nodes."
+                    )
+        # The prompt node is optional, but the user typed a prompt: say why it
+        # is being ignored instead of silently generating the workflow default.
+        LOGGER.warning(
+            "Motion workflow has no 'Input Prompt' node, so the motion prompt is "
+            "ignored and the workflow's own prompt is used"
+        )
         return workflow
 
     # -- ComfyUI upload / submit / poll / download ---------------------------------

@@ -65,6 +65,9 @@ class SuggestMotionPromptResponse(BaseModel):
 class GenerateMotionClipRequest(BaseModel):
     image_url: str = Field(description="URL/path of the slide image (LTX start frame)")
     motion_prompt: Optional[str] = None
+    duration_seconds: Optional[int] = Field(
+        default=None, ge=1, le=30, description="Clip length; the workflow default if unset"
+    )
     previous_motion_video: Optional[str] = Field(
         default=None,
         description="Existing clip on this image; deleted once the new one succeeds",
@@ -172,6 +175,7 @@ async def _run_generate_motion_clip_task(
     motion_prompt: Optional[str],
     output_directory: str,
     previous_clip_path: Optional[str],
+    duration_seconds: Optional[int] = None,
 ) -> None:
     async with async_session_maker() as sql_session:
         async_status = await sql_session.get(AsyncTaskModel, task_id)
@@ -191,7 +195,7 @@ async def _run_generate_motion_clip_task(
             image_path = await _materialize_source_image(source_image, output_directory)
             try:
                 clip_path = await MOTION_VIDEO_SERVICE.generate_motion_clip_comfyui(
-                    image_path, motion_prompt, output_directory
+                    image_path, motion_prompt, output_directory, duration_seconds
                 )
             finally:
                 # Only delete source copies we created (downloaded / data: URIs).
@@ -256,6 +260,7 @@ async def generate_motion_clip_async(
         body.motion_prompt,
         owner_dir,
         previous_clip_path,
+        body.duration_seconds,
     )
     return async_status
 

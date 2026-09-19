@@ -169,9 +169,11 @@ const VideoMotionProvider = ({
                     />
                     <p className="mt-2 text-sm text-gray-500">
                       The image node that receives the slide image (the LTX
-                      start frame) must be titled &quot;Input Image&quot;. An
-                      optional text node titled &quot;Motion Prompt&quot;
-                      receives the motion description.
+                      start frame) must be titled &quot;Load Image&quot;. Optional
+                      nodes: a text node titled &quot;Input Prompt&quot; (motion
+                      description) and int nodes titled &quot;Width&quot;,
+                      &quot;Height&quot; (set from the image&apos;s aspect ratio)
+                      and &quot;Duration&quot; (seconds).
                     </p>
                   </div>
 

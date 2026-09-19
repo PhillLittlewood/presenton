@@ -1144,7 +1144,7 @@ const PresentonMode = ({
                             placeholder='Paste your ComfyUI LTX image-to-video workflow JSON here (export via "Export (API)" in ComfyUI)'
                         />
                         <p className="mt-2 text-xs leading-5 text-gray-500">
-                            The image node that receives the slide image (the LTX start frame) must be titled &quot;Input Image&quot;. An optional text node titled &quot;Motion Prompt&quot; receives the motion description.
+                            The image node that receives the slide image (the LTX start frame) must be titled &quot;Load Image&quot;. Optional: a text node titled &quot;Input Prompt&quot; (motion description) and int nodes titled &quot;Width&quot;, &quot;Height&quot; and &quot;Duration&quot;.
                         </p>
                     </div>
 
