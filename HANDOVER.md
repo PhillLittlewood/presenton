@@ -174,6 +174,43 @@ path is untouched.
   "Use suggested" link) and by the notes popover's "≈ N s of narration" line. The slide's note reaches
   the dialog via `TemplateV2KonvaSlide` (`useSelector`) → `ElementToolbar` → `ImageToolbar` → modal.
 
+## 3b. Fix — generation hangs at "Generating presentation data…" with some local models
+
+**Symptom:** with some models (LM Studio: Qwen3 14B, Gemma 4 26B-A4B; Ministral 3 14B erroring) the outline
+page's overlay parks at 95% and never reaches the slides. Llama 3 8B and DeepSeek-R1 14B were fine.
+That overlay is the `POST /api/v1/ppt/presentation/prepare` request, which awaits a single LLM call
+(`generate_presentation_structure` — picks a layout per slide).
+
+**Causes found (all in the shared structured-output path, `utils/llm_utils.py`):**
+1. *Validation retry loop.* The structure schema demands exactly N slide indexes. A model that miscounts
+   triggered up to 4 full regenerations (plus 3 parse retries each), each with a growing prompt — minutes
+   for a thinking model, so it looked hung. `/prepare` already repairs a wrong count/range
+   (`_normalize_presentation_structure`), so the layout call now takes the first answer
+   (`validate_schema_max_loop_count=1`).
+2. *Malformed retry messages.* The correction was appended as a **second consecutive user message**, which
+   strict chat templates reject (Mistral/Ministral: "conversation roles must alternate…" — the Jinja error in
+   the LM Studio log; Gemma templates behave similarly). Now `structured_validation_feedback_messages()` sends
+   an assistant turn (the invalid JSON) then a user turn.
+3. *No end to a runaway generation.* No `max_tokens`, no timeout, no stop condition, so a model that never
+   stops (repetition loop, endless whitespace after its JSON, endless reasoning) held the request open forever.
+   `_generate_structured_content` now watches the stream (`utils/structured_output_guard.py`): it stops when a
+   complete JSON object has arrived and the model keeps writing (>256 chars), or on >2000 whitespace chars in a
+   row, no `{` within 20k chars, `LLM_STRUCTURED_MAX_CHARS` (default 100000) or `LLM_STRUCTURED_MAX_SECONDS`
+   (default 1800, 0 = off). A complete JSON is used; otherwise the call fails with a clear 400 ("The model
+   never finished its reply (…)") instead of hanging.
+4. *Replies wrapped in code fences, `<think>` blocks or prose* made the llmai OpenAI-compatible client raise
+   `Expecting value…`. The streamed text is now salvaged (`extract_json_object`) before giving up, and
+   `extract_structured_content` falls back to the same tolerant parser.
+
+**Diagnostics:** the backend now logs `Structured LLM call started/still running (every 30 s)/finished` with
+prompt size, reply chars, thinking chars, finish reason and whether it was stopped early. The outline overlay
+shows "Still waiting for the model (Xm Ys)…" after 45 s. If a model still stalls, send those log lines.
+
+**Not confirmed:** whether Qwen3/Gemma stalled from cause 1 (slow retries) or 3 (a real runaway) — reproduced
+both with a fake OpenAI-compatible server (`/tmp` scripts, not committed) but not with the real models. LM
+Studio's context length and its "separate reasoning content" setting are worth checking for those models.
+Tests: `tests/unit/test_structured_output_guard.py`, `tests/unit/test_llm_structured_generation.py`.
+
 ## 4. Other work (unchanged from earlier notes)
 
 Title-slide layout fix in `utils/llm_calls/generate_presentation_structure.py`
