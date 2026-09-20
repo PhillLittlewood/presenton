@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -28,6 +28,7 @@ import {
   duplicatePresentationSlide,
   movePresentationSlide,
   replaceSlidesWithBlankFallback,
+  updateSlide,
 } from "@/store/slices/presentationGeneration";
 import { addToHistory } from "@/store/slices/undoRedoSlice";
 import { RootState } from "@/store/store";
@@ -41,6 +42,10 @@ import {
 } from "../../_shared/blank-slide";
 import NewSlide from "./NewSlide";
 import { MAX_NUMBER_OF_SLIDES } from "@/utils/presentationLimits";
+import { suggestMotionDuration } from "@/components/slide-editor/images/motion-duration";
+
+// Typing is saved to the deck (and so auto-saved) after a short pause.
+const SPEAKER_NOTE_SAVE_DELAY_MS = 700;
 
 interface SlideActionBarProps {
   slide: any;
@@ -103,6 +108,64 @@ const SlideActionBar = ({
     typeof slide?.speaker_note === "string" ? slide.speaker_note.trim() : "";
   const keepVisible =
     showNewSlideSelection || isSpeakerPopoverOpen || isSlideMenuOpen;
+
+  // Speaker notes are edited in a local draft and written to the slide in the
+  // store (which the existing auto-save persists) after a pause, on close, and
+  // when the bar unmounts, so no keystrokes are lost.
+  const [noteDraft, setNoteDraft] = useState("");
+  const noteDraftRef = useRef("");
+  const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteDirtyRef = useRef(false);
+  const slideIdRef = useRef<string | null>(null);
+  const currentSlideId = typeof slide?.id === "string" ? slide.id : null;
+
+  const flushSpeakerNote = useCallback(() => {
+    if (noteTimerRef.current) {
+      clearTimeout(noteTimerRef.current);
+      noteTimerRef.current = null;
+    }
+    if (!noteDirtyRef.current) return;
+    noteDirtyRef.current = false;
+    const slides = (store.getState() as RootState).presentationGeneration
+      .presentationData?.slides;
+    const slideId = slideIdRef.current;
+    if (!Array.isArray(slides) || !slideId) return;
+    const index = slides.findIndex((item) => item?.id === slideId);
+    if (index < 0) return;
+    const latest = slides[index];
+    const value = noteDraftRef.current;
+    if ((latest.speaker_note ?? "") === value) return;
+    dispatch(updateSlide({ index, slide: { ...latest, speaker_note: value } }));
+  }, [dispatch, store]);
+
+  const handleSpeakerNoteChange = (value: string) => {
+    setNoteDraft(value);
+    noteDraftRef.current = value;
+    noteDirtyRef.current = true;
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = setTimeout(flushSpeakerNote, SPEAKER_NOTE_SAVE_DELAY_MS);
+  };
+
+  const handleSpeakerPopoverOpenChange = (open: boolean) => {
+    if (open) {
+      const current = typeof slide?.speaker_note === "string" ? slide.speaker_note : "";
+      setNoteDraft(current);
+      noteDraftRef.current = current;
+      noteDirtyRef.current = false;
+    } else {
+      flushSpeakerNote();
+    }
+    setIsSpeakerPopoverOpen(open);
+  };
+
+  // Cleanup runs before the ref moves to the next slide (or on unmount), so a
+  // pending edit is always written to the slide it was typed on.
+  useEffect(() => {
+    slideIdRef.current = currentSlideId;
+    return flushSpeakerNote;
+  }, [currentSlideId, flushSpeakerNote]);
+
+  const noteEstimate = useMemo(() => suggestMotionDuration(noteDraft), [noteDraft]);
 
   if (!slide || !hasPresentation || slideCount === 0 || isStreaming) {
     return null;
@@ -352,15 +415,17 @@ const SlideActionBar = ({
               <Separator orientation="vertical" className="mx-2 h-6 shrink-0 bg-[#EDEEEF]" />
             </>
           )}
-          {speakerNote &&
+          {/* Always available so notes can also be added to slides that have none. */}
+          {
             <Popover
               open={isSpeakerPopoverOpen}
-              onOpenChange={setIsSpeakerPopoverOpen}
+              onOpenChange={handleSpeakerPopoverOpenChange}
             >
               <PopoverTrigger asChild>
                 <button
                   type="button"
                   aria-label="Speaker notes"
+                  title={speakerNote ? "Edit speaker notes" : "Add speaker notes"}
                   className={cn(
                     "flex h-8 w-10 shrink-0 items-center justify-center rounded-[6px] text-[#050505] transition-colors hover:bg-[#F7F6F9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5141e5]",
                     isSpeakerPopoverOpen && "bg-[#F7F6F9]"
@@ -385,14 +450,23 @@ const SlideActionBar = ({
                   </p>
                 </div>
                 <div className="p-5">
-                  <div className="max-h-[240px] min-h-[108px] overflow-auto whitespace-pre-wrap rounded-[12px] border border-[#EDEEEF] bg-[#FAFAFB] p-4 text-sm leading-relaxed text-[#333333]">
-                    {speakerNote || "No speaker notes for this slide."}
-                  </div>
+                  <textarea
+                    aria-label="Speaker notes"
+                    value={noteDraft}
+                    onChange={(event) => handleSpeakerNoteChange(event.target.value)}
+                    placeholder="Add speaker notes for this slide. In video export they are read aloud as narration."
+                    rows={6}
+                    className="block max-h-[240px] min-h-[108px] w-full resize-y overflow-auto rounded-[12px] border border-[#EDEEEF] bg-[#FAFAFB] p-4 text-sm leading-relaxed text-[#333333] outline-none placeholder:text-[#9A9AA5] focus:border-[#C9C2F5] focus:ring-2 focus:ring-[#7C51F8]/15"
+                  />
+                  <p className="mt-2 text-xs text-[#7A7A85]">
+                    {noteEstimate
+                      ? `About ${noteEstimate.units} ${noteEstimate.units === 1 ? "word" : "words"} ≈ ${Math.max(1, Math.round(noteEstimate.narrationSeconds))} s of narration. Changes are saved automatically.`
+                      : "Changes are saved automatically."}
+                  </p>
                 </div>
               </PopoverContent>
             </Popover>}
-          {speakerNote &&
-            <Separator orientation="vertical" className="mx-2 h-6 shrink-0 bg-[#EDEEEF]" />}
+          <Separator orientation="vertical" className="mx-2 h-6 shrink-0 bg-[#EDEEEF]" />
 
           <DropdownMenu.Root
             open={isSlideMenuOpen}
