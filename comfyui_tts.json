@@ -1,0 +1,61 @@
+{
+  "26": {
+    "inputs": {
+      "audio": "Isabel2.wav"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Load Audio"
+    }
+  },
+  "42": {
+    "inputs": {
+      "text": [
+        "44",
+        0
+      ],
+      "device": "auto",
+      "exaggeration": 0.5,
+      "temperature": 0.8,
+      "cfg_weight": 0.5,
+      "seed": 984876682,
+      "audio_prompt_path": "",
+      "enable_chunking": true,
+      "max_chars_per_chunk": 400,
+      "chunk_combination_method": "auto",
+      "silence_between_chunks_ms": 100,
+      "reference_audio": [
+        "26",
+        0
+      ]
+    },
+    "class_type": "ChatterBoxVoiceTTS",
+    "_meta": {
+      "title": "🎤 ChatterBox Voice TTS"
+    }
+  },
+  "43": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "format": "mp3",
+      "format.quality": "320k",
+      "audio": [
+        "42",
+        0
+      ]
+    },
+    "class_type": "SaveAudioAdvanced",
+    "_meta": {
+      "title": "Save Audio"
+    }
+  },
+  "44": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "Input Prompt"
+    }
+  }
+}
