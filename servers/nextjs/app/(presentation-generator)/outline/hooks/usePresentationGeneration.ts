@@ -14,6 +14,15 @@ import {
 } from "@/utils/presentationLimits";
 import { store } from "@/store/store";
 
+// After this long, tell the user the model is just slow rather than leaving
+// the overlay parked at 95% with no explanation.
+const STILL_WAITING_AFTER_SECONDS = 45;
+
+const formatElapsed = (seconds: number) =>
+  seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+
 const DEFAULT_LOADING_STATE: LoadingState = {
   message: "",
   isLoading: false,
@@ -103,6 +112,22 @@ export const usePresentationGeneration = (
       duration: 30,
     });
 
+    const waitStartedAt = Date.now();
+    const stillWaitingTimer = setInterval(() => {
+      const elapsed = Math.round((Date.now() - waitStartedAt) / 1000);
+      if (elapsed < STILL_WAITING_AFTER_SECONDS) return;
+      setLoadingState((current) =>
+        current.isLoading
+          ? {
+              ...current,
+              extra_info: `Still waiting for the model (${formatElapsed(
+                elapsed
+              )}). Slower or "thinking" models can take several minutes. If it fails, the reason will be shown here.`,
+            }
+          : current
+      );
+    }, 5_000);
+
     try {
       const response = await PresentationGenerationApi.presentationPrepare({
         presentation_id: presentationId,
@@ -138,6 +163,7 @@ export const usePresentationGeneration = (
         error.message || "Error in presentation generation."
       );
     } finally {
+      clearInterval(stillWaitingTimer);
       setLoadingState(DEFAULT_LOADING_STATE);
     }
   }, [

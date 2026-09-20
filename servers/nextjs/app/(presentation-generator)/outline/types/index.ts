@@ -12,6 +12,7 @@ export interface LoadingState {
   isLoading: boolean;
   showProgress: boolean;
   duration: number;
+  extra_info?: string;
 }
 
 

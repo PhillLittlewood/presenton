@@ -311,6 +311,26 @@ def get_pixabay_api_key_env():
     return os.getenv("PIXABAY_API_KEY")
 
 
+# Safeguards for structured LLM calls (see utils/structured_output_guard.py).
+# A reply longer than this many characters (outside <think> blocks) is treated
+# as a runaway generation and stopped. Real structured replies are a few KB.
+def get_llm_structured_max_chars_env() -> int:
+    try:
+        value = int(os.getenv("LLM_STRUCTURED_MAX_CHARS", "100000"))
+    except (TypeError, ValueError):
+        return 100_000
+    return value if value > 0 else 100_000
+
+
+# Wall-clock ceiling for one structured generation, seconds. 0 disables it.
+def get_llm_structured_max_seconds_env() -> int:
+    try:
+        value = int(os.getenv("LLM_STRUCTURED_MAX_SECONDS", "1800"))
+    except (TypeError, ValueError):
+        return 1800
+    return max(0, value)
+
+
 def get_disable_thinking_env():
     return os.getenv("DISABLE_THINKING")
 

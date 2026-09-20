@@ -340,6 +340,13 @@ async def generate_presentation_structure(
             json_schema=structure_schema,
             strict=False,
             validate_schema=True,
+            # The only schema rule a model tends to break here is the exact
+            # slide count, and /prepare repairs that deterministically
+            # (_normalize_presentation_structure). Re-running the whole
+            # generation to fix it (up to 3 more times, each with a growing
+            # prompt) made slower/"thinking" local models look hung for many
+            # minutes, so take the first answer.
+            validate_schema_max_loop_count=1,
             disconnect_checker=disconnect_checker,
         )
         structure = PresentationStructureModel(**content)

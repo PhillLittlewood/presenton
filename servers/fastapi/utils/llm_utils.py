@@ -11,6 +11,7 @@ from typing import Any, Optional
 import dirtyjson
 from fastapi import HTTPException
 from llmai.shared import (
+    AssistantMessage,
     LLMTool,
     Message,
     ReasoningConfig,
@@ -20,8 +21,13 @@ from llmai.shared import (
     normalize_content_parts,
 )
 
+from utils.get_env import (
+    get_llm_structured_max_chars_env,
+    get_llm_structured_max_seconds_env,
+)
 from utils.llm_config import get_extra_body
 from utils.schema_utils import get_schema_validation_errors
+from utils.structured_output_guard import JsonCompletionWatcher, extract_json_object
 
 LOGGER = logging.getLogger(__name__)
 CLIENT_DISCONNECT_POLL_SECONDS = 0.1
@@ -81,21 +87,133 @@ async def _generate_structured_content(
     # background generation, which made it look provider- or size-specific.
     # Streaming is what the SDK asks for here and is accepted identically by
     # the other providers, so it is the single path.
+    #
+    # Because there is no max_tokens, a model that never stops (a repetition
+    # loop, endless whitespace after its answer, runaway "thinking") used to
+    # hold the request -- and the UI waiting on it -- open forever. The stream
+    # is therefore watched: it is stopped once a complete JSON object has
+    # arrived and the model keeps writing, or when the output is clearly
+    # degenerate or exceeds the configured limits.
     completion_content: Any = None
+    finish_reason: Optional[str] = None
     streamed_text: list[str] = []
-    async for event in stream_generate_events(
+    watcher = JsonCompletionWatcher()
+    max_chars = get_llm_structured_max_chars_env()
+    max_seconds = get_llm_structured_max_seconds_env()
+    thinking_chars = 0
+    stopped_reason: Optional[str] = None
+
+    messages = kwargs.get("messages") or []
+    prompt_chars = sum(
+        len(message_content_to_text(getattr(message, "content", None)) or "")
+        for message in messages
+    )
+    started = time.monotonic()
+    next_progress_log = started + 30
+    LOGGER.info(
+        "Structured LLM call started: model=%s messages=%s prompt_chars=%s",
+        kwargs.get("model"),
+        len(messages),
+        prompt_chars,
+    )
+
+    stream = stream_generate_events(
         client,
         disconnect_checker=disconnect_checker,
         **{**kwargs, "stream": True},
-    ):
-        if isinstance(event, ResponseStreamCompletionChunk):
-            completion_content = event.content
-        elif getattr(event, "type", None) == "content":
-            chunk = getattr(event, "chunk", None)
-            if isinstance(chunk, str):
-                streamed_text.append(chunk)
-                if text_chunk_callback is not None:
-                    await text_chunk_callback(chunk)
+    )
+    try:
+        async for event in stream:
+            event_type = getattr(event, "type", None)
+            if isinstance(event, ResponseStreamCompletionChunk):
+                completion_content = event.content
+                finish_reason = getattr(event, "finish_reason", None)
+            elif event_type == "content":
+                chunk = getattr(event, "chunk", None)
+                if isinstance(chunk, str):
+                    streamed_text.append(chunk)
+                    watcher.feed(chunk)
+                    if text_chunk_callback is not None:
+                        await text_chunk_callback(chunk)
+            elif event_type == "thinking":
+                thinking = getattr(event, "chunk", None)
+                if isinstance(thinking, str):
+                    thinking_chars += len(thinking)
+
+            now = time.monotonic()
+            if watcher.degenerate_reason:
+                stopped_reason = watcher.degenerate_reason
+            elif watcher.keeps_writing_after_json:
+                stopped_reason = "the model kept writing after its JSON was complete"
+            elif watcher.visible_chars > max_chars:
+                stopped_reason = (
+                    f"the reply exceeded {max_chars} characters without finishing"
+                )
+            elif watcher.total_chars > max_chars * 4:
+                stopped_reason = "the model produced far more text than expected"
+            elif max_seconds and now - started > max_seconds:
+                stopped_reason = f"generation ran longer than {max_seconds} seconds"
+            if stopped_reason:
+                break
+
+            if now >= next_progress_log:
+                next_progress_log = now + 30
+                LOGGER.info(
+                    "Structured LLM call still running: %.0fs, reply_chars=%s, "
+                    "thinking_chars=%s, json_complete=%s",
+                    now - started,
+                    watcher.visible_chars,
+                    thinking_chars,
+                    watcher.json_complete,
+                )
+    except Exception as exc:
+        # Some providers/clients try to json-parse the whole reply and raise
+        # when it is wrapped in code fences, <think> tags or a sentence of
+        # prose, even though the JSON itself was received. Use it if it's there.
+        text = "".join(streamed_text)
+        salvaged = extract_structured_content(text) if text else None
+        if salvaged is None:
+            raise
+        LOGGER.warning(
+            "Recovered structured content from a reply the LLM client rejected "
+            "(%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        return salvaged
+    finally:
+        # Ends the underlying request when we stopped early, so the model
+        # server stops generating instead of running on unattended.
+        await stream.aclose()
+
+    elapsed = time.monotonic() - started
+    LOGGER.info(
+        "Structured LLM call finished: %.1fs, reply_chars=%s, thinking_chars=%s, "
+        "finish_reason=%s, stopped_early=%s",
+        elapsed,
+        watcher.visible_chars,
+        thinking_chars,
+        finish_reason,
+        stopped_reason or "no",
+    )
+
+    if stopped_reason:
+        recovered = extract_structured_content("".join(streamed_text))
+        if recovered is not None and watcher.json_complete:
+            LOGGER.warning(
+                "Stopped the LLM stream early (%s); using the complete JSON "
+                "it had already produced.",
+                stopped_reason,
+            )
+            return recovered
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The model never finished its reply "
+                f"({stopped_reason}) after {elapsed:.0f}s. Try again, use a different "
+                "model, or turn off thinking/reasoning for this model."
+            ),
+        )
 
     content = extract_structured_content(completion_content)
     if content is not None:
@@ -273,6 +391,45 @@ def build_text_generation_metrics(
     )
 
 
+def structured_validation_feedback_messages(
+    content: dict,
+    validation_errors: list[str],
+) -> list[Message]:
+    """
+    The model's invalid reply followed by the correction request, as an
+    assistant turn then a user turn. Appending a second *user* message right
+    after the original one breaks chat templates that require strictly
+    alternating roles (Mistral/Ministral, Gemma, ...): the server rejects the
+    request with an error such as "conversation roles must alternate".
+    """
+    max_error_count = 10
+    max_json_chars = 6000
+
+    formatted_errors = validation_errors[:max_error_count]
+    if len(validation_errors) > max_error_count:
+        formatted_errors.append(
+            f"...and {len(validation_errors) - max_error_count} more validation errors."
+        )
+    previous_response = json.dumps(
+        content, ensure_ascii=False, indent=2, default=str
+    )
+    if len(previous_response) > max_json_chars:
+        previous_response = previous_response[:max_json_chars] + "\n... (truncated)"
+
+    return [
+        AssistantMessage(content=[previous_response]),
+        UserMessage(
+            content=(
+                "That JSON response did not match the required response schema.\n\n"
+                "Validation errors:\n"
+                + "\n".join(f"- {error}" for error in formatted_errors)
+                + "\n\nReturn corrected JSON only. Make sure it fully matches the "
+                "required schema."
+            )
+        ),
+    ]
+
+
 def structured_validation_feedback_user_message(
     content: dict,
     validation_errors: list[str],
@@ -382,8 +539,8 @@ async def generate_structured_with_schema_retries(
             max_validation_loops - 1,
             formatted_validation_errors,
         )
-        working_messages.append(
-            structured_validation_feedback_user_message(content, validation_errors)
+        working_messages.extend(
+            structured_validation_feedback_messages(content, validation_errors)
         )
 
     raise HTTPException(status_code=400, detail="LLM did not return any content")
@@ -428,7 +585,9 @@ def extract_structured_content(content: Any) -> Optional[dict]:
     try:
         parsed = dirtyjson.loads(raw_text)
     except Exception:
-        return None
+        # Replies wrapped in ```json fences, <think> blocks or a sentence of
+        # prose: pull out the first JSON object instead of giving up.
+        return extract_json_object(raw_text)
 
     if isinstance(parsed, dict):
         return dict(parsed)

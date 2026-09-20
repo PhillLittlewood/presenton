@@ -380,6 +380,7 @@ const OutlinePage: React.FC = () => {
         text={loadingState.message}
         showProgress={loadingState.showProgress}
         duration={loadingState.duration}
+        extra_info={loadingState.extra_info}
       />
 
       <OutlineStandardHeader
