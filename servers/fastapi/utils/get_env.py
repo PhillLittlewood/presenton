@@ -1,4 +1,8 @@
 import os
+from typing import Literal
+
+
+PresentationGenerationMode = Literal["both", "standard", "smart"]
 
 DEFAULT_PRESENTON_OAUTH_ISSUER = "https://api.presenton.ai"
 DEFAULT_PRESENTON_OAUTH_CLIENT_ID = "ptc_presenton_open_source"
@@ -12,6 +16,29 @@ def _is_truthy(value: str | None) -> bool:
 
 def get_can_change_keys_env():
     return os.getenv("CAN_CHANGE_KEYS")
+
+
+def get_presenton_public_url() -> str | None:
+    value = (os.getenv("PRESENTON_PUBLIC_URL") or "").strip().rstrip("/")
+    if value.startswith(("http://", "https://")):
+        return value
+    return None
+
+
+def get_presentation_generation_mode() -> PresentationGenerationMode:
+    """Return the enabled generation mode, matching the web UI's fallback."""
+    value = (os.getenv("PRESENTATION_GENERATION_MODE") or "").strip().lower()
+    if value in {"standard", "smart", "both"}:
+        return value
+    return "both"
+
+
+def is_community_enabled() -> bool:
+    """Return whether cloud-backed community features are available."""
+    value = (os.getenv("PRESENTON_COMMUNITY_ENABLED") or "").strip().lower()
+    if not value:
+        return True
+    return value not in {"0", "false", "no", "off"}
 
 
 def get_database_url_env():
@@ -507,7 +534,7 @@ def get_codex_model_env():
 
 
 def get_migrate_database_on_startup_env():
-    return os.getenv("MIGRATE_DATABASE_ON_STARTUP")
+    return os.getenv("MIGRATE_DATABASE_ON_STARTUP", "true")
 
 
 def get_sentry_dsn_env():

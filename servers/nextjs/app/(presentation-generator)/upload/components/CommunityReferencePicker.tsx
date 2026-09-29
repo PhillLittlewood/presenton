@@ -6,6 +6,8 @@ import { Check, Eye, Heart, Loader2, RefreshCw, Search } from "lucide-react";
 import SmartHtmlSlide from "../../components/SmartHtmlSlide";
 import {
   CommunityPresentationApi,
+  getCommunityErrorState,
+  type CommunityErrorState,
   type CommunityPresentation,
   type CommunityPresentationListFilters,
 } from "../../services/api/community";
@@ -23,15 +25,23 @@ export default function CommunityReferencePicker({
   const [filters, setFilters] =
     useState<CommunityPresentationListFilters>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<CommunityErrorState | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     setLoading(true);
-    setError(false);
+    setError(null);
     CommunityPresentationApi.list(1, 8, signal, filters)
       .then((response) => setItems(response.results ?? []))
       .catch((requestError) => {
-        if ((requestError as Error)?.name !== "AbortError") setError(true);
+        if ((requestError as Error)?.name !== "AbortError") {
+          setItems([]);
+          setError(
+            getCommunityErrorState(
+              requestError,
+              "Could not load community designs. Please try again."
+            )
+          );
+        }
       })
       .finally(() => {
         if (!signal?.aborted) setLoading(false);
@@ -100,13 +110,26 @@ export default function CommunityReferencePicker({
           <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       ) : error ? (
-        <button
-          type="button"
-          onClick={() => load()}
-          className="mx-auto mt-5 flex h-40 w-[calc(100%-3rem)] items-center justify-center gap-2 rounded-xl border border-dashed border-[#D9D9DE] text-xs text-[#7A5AF8]"
+        <div
+          role="alert"
+          className="mx-auto mt-5 flex min-h-40 w-[calc(100%-3rem)] flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50/40 px-6 py-8 text-center"
         >
-          <RefreshCw className="h-4 w-4" /> Retry community designs
-        </button>
+          <h3 className="text-sm font-semibold text-[#191919]">
+            Could not load community designs
+          </h3>
+          <p className="mt-2 max-w-lg text-xs leading-5 text-[#666666]">
+            {error.message}
+          </p>
+          {error.retryable && (
+            <button
+              type="button"
+              onClick={() => load()}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#E0DDFC] bg-white px-4 py-2 text-xs font-medium text-[#6847F4] transition hover:bg-[#F8F7FF]"
+            >
+              <RefreshCw className="h-4 w-4" /> Try again
+            </button>
+          )}
+        </div>
       ) : visibleItems.length === 0 ? (
         <div className="mx-0 mt-5 rounded-xl border border-dashed border-[#D9D9DE] bg-[#FAFAFC] px-6 py-10 text-center sm:mx-6">
           <Search className="mx-auto h-5 w-5 text-[#808080]" />

@@ -1272,7 +1272,7 @@ const PresentonMode = ({
             <p className='px-2.5 py-0.5 w-fit text-[#7A5AF8] rounded-[50px]  border border-[#EDEEEF] text-[10px] font-medium mb-5 font-syne'>PRESENTON</p>
             <div className=''>
 
-                <h2 className='mb-4 text-black text-[26px] font-normal font-unbounded '>
+                <h2 className='mb-4 text-black text-[26px] font-normal font-syne '>
                     {providerStep === 1 ? "Choose how you want to create" : providerStep === 2 ? "Choose your image provider" : providerStep === 3 ? "Configure web search" : providerStep === 4 ? "Configure video narration" : "Configure motion video"}
                 </h2>
                 <p className='text-[#000000CC] text-xl font-normal font-syne'>

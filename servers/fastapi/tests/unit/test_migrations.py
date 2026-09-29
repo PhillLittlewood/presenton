@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from alembic import command
@@ -5,6 +6,30 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 
 import migrations
+
+
+def test_migrations_run_by_default(monkeypatch):
+    monkeypatch.delenv("MIGRATE_DATABASE_ON_STARTUP", raising=False)
+    migration_runs = []
+    monkeypatch.setattr(
+        migrations, "_run_migrations", lambda: migration_runs.append(True)
+    )
+
+    asyncio.run(migrations.migrate_database_on_startup())
+
+    assert migration_runs == [True]
+
+
+def test_migrations_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("MIGRATE_DATABASE_ON_STARTUP", "false")
+    migration_runs = []
+    monkeypatch.setattr(
+        migrations, "_run_migrations", lambda: migration_runs.append(True)
+    )
+
+    asyncio.run(migrations.migrate_database_on_startup())
+
+    assert migration_runs == []
 
 
 def _alembic_config(database_url: str) -> Config:
@@ -94,6 +119,9 @@ def test_upgrade_from_baseline_stamp_skips_existing_theme_column(tmp_path):
         assert "theme" in columns
         assert "fonts" in columns
         assert "async_tasks" in tables
+        assert "api_keys" in tables
+        assert "access_tokens" not in tables
+        assert "mcp_credentials" not in tables
         assert "presenton_oauth_identity" not in tables
         assert "presenton_cloud_provider" in tables
         assert "access_token_encrypted" in provider_columns
@@ -847,5 +875,36 @@ def test_upgrade_from_previous_head_adds_template_v2_theme(tmp_path):
 
         assert version == migrations.REVISION_HEAD
         assert "theme" in template_columns
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_from_template_v2_theme_adds_unified_keys_and_task_payload(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'async-task-payload.db'}"
+    engine = create_engine(database_url)
+    try:
+        config = _alembic_config(database_url)
+        command.upgrade(config, migrations.REVISION_TEMPLATE_V2_THEME)
+        command.upgrade(config, "head")
+
+        with engine.connect() as connection:
+            version = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+            async_task_columns = {
+                row[1]
+                for row in connection.execute(text("PRAGMA table_info(async_tasks)"))
+            }
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT name FROM sqlite_master WHERE type = 'table'")
+                )
+            }
+
+        assert version == migrations.REVISION_HEAD
+        assert "payload" in async_task_columns
+        assert "api_keys" in tables
+        assert "access_tokens" not in tables
     finally:
         engine.dispose()

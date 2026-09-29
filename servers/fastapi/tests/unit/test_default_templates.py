@@ -379,6 +379,20 @@ def test_bundled_general_template_json_matches_template_v2_shapes():
     )
 
 
+def test_new_bundled_templates_load_with_layouts_and_assets():
+    templates_root = Path(__file__).resolve().parents[4] / "templates"
+    expected_layout_counts = {"landmark": 27, "nova": 28, "signal": 24}
+
+    for name, layout_count in expected_layout_counts.items():
+        template = default_templates._load_default_template(templates_root / name)
+        assert template.id == name
+        assert template.is_default is True
+        assert len(template.layouts["layouts"]) == layout_count
+        assert template.assets["thumbnail"] == (
+            f"/app_data/templates/{name}/static/thumbnail.png"
+        )
+
+
 def test_resolve_default_template_id_maps_public_name_to_json_id():
     templates_root = Path(__file__).resolve().parents[4] / "templates"
 

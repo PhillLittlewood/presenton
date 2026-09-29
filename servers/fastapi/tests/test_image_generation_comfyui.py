@@ -86,6 +86,41 @@ def test_comfyui_seed_randomization_updates_common_seed_inputs(tmp_path):
     assert workflow["4"]["inputs"]["seed_offset"] == 2
 
 
+def test_comfyui_target_size_uses_template_dimensions_and_default(tmp_path):
+    service = ImageGenerationService(str(tmp_path))
+    workflow = {
+        "1": {
+            "class_type": "EmptyLatentImage",
+            "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+        },
+        "2": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+        },
+        "3": {
+            "class_type": "ImageScale",
+            "inputs": {"width": 1024, "height": 1024},
+        },
+        "4": {
+            "class_type": "CustomDimensions",
+            "_meta": {"title": " Image Size "},
+            "inputs": {"width": 1024, "height": 1024},
+        },
+    }
+
+    assert service._inject_target_size_into_workflow(workflow, None) == 0
+    assert workflow["1"]["inputs"]["width"] == 1024
+    assert workflow["1"]["inputs"]["height"] == 1024
+
+    assert service._inject_target_size_into_workflow(workflow, (400, 200)) == 3
+    for node_id in ("1", "2", "4"):
+        inputs = workflow[node_id]["inputs"]
+        assert (inputs["width"], inputs["height"]) == (400, 200)
+        if node_id != "4":
+            assert inputs["batch_size"] == 1
+    assert workflow["3"]["inputs"] == {"width": 1024, "height": 1024}
+
+
 def test_comfyui_seed_randomization_updates_linked_seed_source(tmp_path):
     service = ImageGenerationService(str(tmp_path))
     workflow = {
@@ -131,6 +166,10 @@ async def test_generate_image_comfyui_randomizes_seed_before_submit(tmp_path):
             "class_type": "KSampler",
             "inputs": {"seed": 123, "steps": 20},
         },
+        "3": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+        },
     }
     service = ImageGenerationService(str(tmp_path))
     submitted_workflow = {}
@@ -161,9 +200,11 @@ async def test_generate_image_comfyui_randomizes_seed_before_submit(tmp_path):
         new=AsyncMock(return_value=str(tmp_path / "image.png")),
     ):
         image_path = await service.generate_image_comfyui(
-            "new prompt", str(tmp_path)
+            "new prompt", str(tmp_path), target_size=(400, 200)
         )
 
     assert image_path == str(tmp_path / "image.png")
     assert submitted_workflow["1"]["inputs"]["text"] == "new prompt"
     assert submitted_workflow["2"]["inputs"]["seed"] == 42
+    assert submitted_workflow["3"]["inputs"]["width"] == 400
+    assert submitted_workflow["3"]["inputs"]["height"] == 200

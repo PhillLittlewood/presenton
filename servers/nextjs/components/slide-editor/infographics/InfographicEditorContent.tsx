@@ -39,6 +39,7 @@ import type {
   RiskMatrixInfographicData,
   TimelineInfographicItem,
   TransformationHubInfographicData,
+  VerticalFunnelInfographicData,
 } from "@/components/slide-editor/types";
 import {
   appendInfographicColor,
@@ -75,6 +76,7 @@ const TYPE_LABELS: Record<InfographicType, string> = {
   chevron_process: "Chevron Process",
   radial_cycle: "Radial Cycle",
   conversion_funnel: "Conversion Funnel",
+  vertical_funnel: "Vertical Funnel",
   pyramid: "Pyramid",
   segmented_wheel: "Segmented Wheel",
   customer_journey: "Customer Journey",
@@ -329,8 +331,14 @@ export function InfographicDataEditorContent({
                 />
               ) : null}
               {type === "conversion_funnel" ? (
-                <ConversionFunnelEditor
+                <FunnelEditor
                   data={readConversionFunnelData(draft.data)}
+                  onChange={updateData}
+                />
+              ) : null}
+              {type === "vertical_funnel" ? (
+                <FunnelEditor
+                  data={readVerticalFunnelData(draft.data)}
                   onChange={updateData}
                 />
               ) : null}
@@ -539,7 +547,7 @@ function GanttEditor({
   const taskRefs = useRef(new Map<string, HTMLDivElement>());
   const pendingTaskScrollKeyRef = useRef<string | null>(null);
   const taskCount = data.rows.reduce(
-    (count, row) => count + row.items.length,
+    (count, row) => count + (row.items?.length ?? 0),
     0,
   );
 
@@ -606,7 +614,7 @@ function GanttEditor({
   };
 
   const addTask = (rowIndex: number) => {
-    const nextTaskIndex = data.rows[rowIndex]?.items.length ?? 0;
+    const nextTaskIndex = data.rows[rowIndex]?.items?.length ?? 0;
     pendingTaskScrollKeyRef.current = `${rowIndex}-${nextTaskIndex}`;
     setRows(
       data.rows.map((current, index) =>
@@ -614,7 +622,7 @@ function GanttEditor({
           ? {
               ...current,
               items: [
-                ...current.items,
+                ...(current.items ?? []),
                 defaultGanttItem(data.columns.length),
               ],
             }
@@ -718,6 +726,7 @@ function GanttEditor({
       >
         <div className="space-y-3.5">
           {data.rows.map((row, rowIndex) => {
+            const rowItems = row.items ?? [];
             const isExpanded = expandedRowIndex === rowIndex;
             const rowPanelId = `gantt-row-${rowIndex}-editor`;
             return (
@@ -754,7 +763,7 @@ function GanttEditor({
                         {row.label || `Row ${rowIndex + 1}`}
                       </span>
                       <span className="mt-0.5 block text-[10px] text-[#8B8B94]">
-                        {row.items.length} {row.items.length === 1 ? "task" : "tasks"}
+                        {rowItems.length} {rowItems.length === 1 ? "task" : "tasks"}
                       </span>
                     </span>
                     {isExpanded ? (
@@ -807,7 +816,7 @@ function GanttEditor({
                     </div>
 
                     <div className="mt-3 space-y-3">
-                      {row.items.map((item, itemIndex) => (
+                      {rowItems.map((item, itemIndex) => (
                         <div
                           key={`gantt-row-${rowIndex}-item-${itemIndex}`}
                           ref={(node) => {
@@ -827,7 +836,7 @@ function GanttEditor({
                                   index === rowIndex
                                     ? {
                                         ...current,
-                                        items: current.items.map(
+                                        items: (current.items ?? []).map(
                                           (currentItem, index) =>
                                             index === itemIndex
                                               ? nextItem
@@ -844,7 +853,7 @@ function GanttEditor({
                                   index === rowIndex
                                     ? {
                                         ...current,
-                                        items: current.items.filter(
+                                        items: (current.items ?? []).filter(
                                           (_, index) => index !== itemIndex,
                                         ),
                                       }
@@ -855,7 +864,7 @@ function GanttEditor({
                           />
                         </div>
                       ))}
-                      {row.items.length === 0 ? (
+                      {rowItems.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-[#DCDDDF] bg-[#FAFAFC] px-4 py-6 text-center text-[11px] text-[#8B8B94]">
                           This row has no tasks yet. Use “Add task” to create one.
                         </div>
@@ -982,12 +991,13 @@ function GanttPositionEditor({
   value: GanttInfographicPosition;
   onChange: (value: GanttInfographicPosition) => void;
 }) {
+  const offset = value.offset ?? 0;
   return (
     <div className="rounded-xl border border-[#E5E6EB] bg-white p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold text-[#555560]">{label}</span>
         <span className="rounded-full bg-[#F1ECFF] px-2 py-0.5 text-[9px] font-semibold text-[#7C51F8]">
-          {Math.round(value.offset * 100)}%
+          {Math.round(offset * 100)}%
         </span>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
@@ -1014,7 +1024,7 @@ function GanttPositionEditor({
             max={100}
             min={0}
             step={5}
-            value={Math.round(value.offset * 100)}
+            value={Math.round(offset * 100)}
             onChange={(percentage) =>
               onChange({ ...value, offset: percentage / 100 })
             }
@@ -1246,12 +1256,14 @@ function RadialCycleEditor({
   );
 }
 
-function ConversionFunnelEditor({
+function FunnelEditor({
   data,
   onChange,
 }: {
-  data: ConversionFunnelInfographicData;
-  onChange: (data: ConversionFunnelInfographicData) => void;
+  data: ConversionFunnelInfographicData | VerticalFunnelInfographicData;
+  onChange: (
+    data: ConversionFunnelInfographicData | VerticalFunnelInfographicData,
+  ) => void;
 }) {
   return (
     <ItemCollectionEditor<ConversionFunnelInfographicItem>
@@ -1371,14 +1383,14 @@ function BeforeAfterEditor({
           <LabeledField label="Before label">
             <TextInput
               ariaLabel="Before comparison label"
-              value={data.before_label}
+              value={data.before_label ?? "Before"}
               onChange={(before_label) => onChange({ ...data, before_label })}
             />
           </LabeledField>
           <LabeledField label="After label">
             <TextInput
               ariaLabel="After comparison label"
-              value={data.after_label}
+              value={data.after_label ?? "After"}
               onChange={(after_label) => onChange({ ...data, after_label })}
             />
           </LabeledField>
@@ -1448,8 +1460,10 @@ function BeforeAfterEditor({
                   <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {pair.map((item, sideIndex) => {
                       const itemIndex = rowIndex * 2 + sideIndex;
-                      const icon = item.icon ?? defaultInfographicIcon(itemIndex);
-                      const sideLabel = sideIndex === 0 ? data.before_label : data.after_label;
+                      const icon = normalizeInfographicIcon(item.icon) ?? defaultInfographicIcon(itemIndex);
+                      const sideLabel = sideIndex === 0
+                        ? data.before_label ?? "Before"
+                        : data.after_label ?? "After";
                       return (
                         <div key={`${rowIndex}-${sideIndex}`} className="rounded-xl border border-[#ECECF1] bg-[#FAFAFC] p-3">
                           <div className="mb-3 text-[11px] font-semibold text-[#555560]">{sideLabel}</div>
@@ -1507,7 +1521,7 @@ function BeforeAfterEditor({
 
       {editingIconIndex != null && editingItem ? (
         <IconsEditor
-          currentIconUrl={editingItem.icon?.url ?? defaultInfographicIcon(editingIconIndex).url}
+          currentIconUrl={normalizeInfographicIcon(editingItem.icon)?.url ?? defaultInfographicIcon(editingIconIndex).url}
           icon_prompt={[editingItem.heading?.trim() || `Comparison item ${editingIconIndex + 1}`]}
           onClose={() => setEditingIconIndex(null)}
           onIconChange={(url) => {
@@ -1515,7 +1529,7 @@ function BeforeAfterEditor({
               ...data,
               items: data.items.map((item, index) =>
                 index === editingIconIndex
-                  ? { ...item, icon: { url, color: item.icon?.color ?? defaultInfographicIcon(index).color } }
+                  ? { ...item, icon: { url, color: normalizeInfographicIcon(item.icon)?.color ?? defaultInfographicIcon(index).color } }
                   : item,
               ),
             });
@@ -1648,7 +1662,7 @@ function ImpactEffortEditor({
             <LabeledField key={key} label={label}>
               <TextInput
                 ariaLabel={label}
-                value={data[key]}
+                value={data[key] ?? ""}
                 onChange={(value) => onChange({ ...data, [key]: value })}
               />
             </LabeledField>
@@ -1719,7 +1733,7 @@ function ComparisonMatrixEditor({
       >
         <div className="space-y-3">
           {data.items.map((item, index) => {
-            const icon = item.icon ?? defaultInfographicIcon(index);
+            const icon = normalizeInfographicIcon(item.icon) ?? defaultInfographicIcon(index);
             return (
               <div key={`comparison-option-${index}`} className="rounded-xl border border-[#ECECF1] bg-white p-4">
                 <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-[#EFEFF3] pb-4">
@@ -1746,10 +1760,10 @@ function ComparisonMatrixEditor({
       </EditorSection>
       {editingIconIndex != null && editingItem ? (
         <IconsEditor
-          currentIconUrl={editingItem.icon?.url ?? defaultInfographicIcon(editingIconIndex).url}
+          currentIconUrl={normalizeInfographicIcon(editingItem.icon)?.url ?? defaultInfographicIcon(editingIconIndex).url}
           icon_prompt={[editingItem.heading || `Option ${editingIconIndex + 1}`]}
           onClose={() => setEditingIconIndex(null)}
-          onIconChange={(url) => updateItem(editingIconIndex, { icon: { url, color: editingItem.icon?.color ?? defaultInfographicIcon(editingIconIndex).color } })}
+          onIconChange={(url) => updateItem(editingIconIndex, { icon: { url, color: normalizeInfographicIcon(editingItem.icon)?.color ?? defaultInfographicIcon(editingIconIndex).color } })}
         />
       ) : null}
     </div>
@@ -1903,7 +1917,7 @@ function ItemCollectionEditor<T extends TimelineInfographicItem>({
       >
         <div className="space-y-3">
           {items.map((item, index) => {
-            const icon = item.icon ?? defaultInfographicIcon(index);
+            const icon = normalizeInfographicIcon(item.icon) ?? defaultInfographicIcon(index);
             const isExpanded = expandedIndex === index;
             const accordionPanelId = `${itemLabel}-${index}-editor`;
             return (
@@ -2011,7 +2025,7 @@ function ItemCollectionEditor<T extends TimelineInfographicItem>({
                                       ? ({
                                           ...current,
                                           icon: {
-                                            ...(current.icon ?? icon),
+                                            ...(normalizeInfographicIcon(current.icon) ?? icon),
                                             color,
                                           },
                                         } as T)
@@ -2116,7 +2130,7 @@ function ItemCollectionEditor<T extends TimelineInfographicItem>({
       {showIcons && editingIconIndex != null && editingItem ? (
         <IconsEditor
           currentIconUrl={
-            editingItem.icon?.url ?? defaultInfographicIcon(editingIconIndex).url
+            normalizeInfographicIcon(editingItem.icon)?.url ?? defaultInfographicIcon(editingIconIndex).url
           }
           icon_prompt={[
             editingItem.heading?.trim() ||
@@ -2132,7 +2146,7 @@ function ItemCollectionEditor<T extends TimelineInfographicItem>({
                       icon: {
                         url,
                         color:
-                          current.icon?.color ??
+                          normalizeInfographicIcon(current.icon)?.color ??
                           defaultInfographicIcon(editingIconIndex).color,
                       },
                     } as T)
@@ -2548,6 +2562,10 @@ function readConversionFunnelData(
   };
 }
 
+function readVerticalFunnelData(value: unknown): VerticalFunnelInfographicData {
+  return { ...readConversionFunnelData(value), type: "vertical_funnel" };
+}
+
 function readMindMapData(value: unknown): MindMapInfographicData {
   const data = readRecord(value);
   const items = readArray(data.items).map(readMindMapNode);
@@ -2616,7 +2634,10 @@ function readGanttPosition(
   const position = readRecord(value);
   return {
     column: Math.max(0, Math.floor(readNumber(position.column, fallback.column))),
-    offset: Math.min(1, Math.max(0, readNumber(position.offset, fallback.offset))),
+    offset: Math.min(
+      1,
+      Math.max(0, readNumber(position.offset, fallback.offset ?? 0)),
+    ),
   };
 }
 
@@ -2638,6 +2659,7 @@ function readInfographicType(value: unknown): InfographicType {
     value === "chevron_process" ||
     value === "radial_cycle" ||
     value === "conversion_funnel" ||
+    value === "vertical_funnel" ||
     value === "pyramid" ||
     value === "segmented_wheel" ||
     value === "customer_journey" ||

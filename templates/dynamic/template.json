@@ -3,32 +3,6 @@
   "name": "Dynamic",
   "description": "Bold, high-contrast layouts with dark textured backgrounds and warm accents for impactful, story-driven presentations.",
   "thumbnail": "static/thumbnail.png",
-  "theme": {
-    "colors": {
-      "primary": "#C24D12",
-      "background": "#171717",
-      "card": "#000000",
-      "stroke": "#FFFFFF",
-      "primary_text": "#FFFFFF",
-      "background_text": "#FFFFFF",
-      "graph_0": "#FF9257",
-      "graph_1": "#C24D12",
-      "graph_2": "#983608",
-      "graph_3": "#E26C2C",
-      "graph_4": "#111111",
-      "graph_5": "#FD7536",
-      "graph_6": "#F4511E",
-      "graph_7": "#000000",
-      "graph_8": "#FFFFFF",
-      "graph_9": "#242424"
-    },
-    "fonts": {
-      "textFont": {
-        "name": "Montserrat",
-        "url": "/vendor/fonts/sans_serif/montserrat/Montserrat[wght].ttf"
-      }
-    }
-  },
   "merged_components": [
     {
       "id": "full_bleed_background",
@@ -16589,7 +16563,7 @@
               },
               "data": "static/image-e437a42467b3c2a6.png",
               "fit": "fill",
-              "decorative": false,
+              "decorative": true,
               "name": "tiered_visual",
               "is_icon": false
             }
@@ -21437,5 +21411,31 @@
     "Montserrat Medium": "static/Montserrat Medium.ttf",
     "Montserrat Semi-Bold": "static/Montserrat SemiBold.ttf",
     "Montserrat": "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,700;1,400&display=swap"
+  },
+  "theme": {
+    "colors": {
+      "primary": "#C24D12",
+      "background": "#171717",
+      "card": "#000000",
+      "stroke": "#FFFFFF",
+      "primary_text": "#FFFFFF",
+      "background_text": "#FFFFFF",
+      "graph_0": "#FF9257",
+      "graph_1": "#C24D12",
+      "graph_2": "#983608",
+      "graph_3": "#E26C2C",
+      "graph_4": "#111111",
+      "graph_5": "#FD7536",
+      "graph_6": "#F4511E",
+      "graph_7": "#000000",
+      "graph_8": "#FFFFFF",
+      "graph_9": "#242424"
+    },
+    "fonts": {
+      "textFont": {
+        "name": "Montserrat",
+        "url": "https://fonts.googleapis.com/css2?family=Montserrat:wght@100..900&display=swap"
+      }
+    }
   }
 }

@@ -111,6 +111,29 @@ def test_generate_image_returns_image_path_and_persists_image_asset(fake_async_s
     assert fake_async_session.commit_count == 1
 
 
+def test_generate_image_passes_optional_target_dimensions(fake_async_session):
+    client = _build_client(fake_async_session)
+    with patch(
+        "api.v1.ppt.endpoints.images.get_images_directory", return_value="/tmp"
+    ), patch("api.v1.ppt.endpoints.images.ImageGenerationService") as mock_service_cls:
+        service = Mock()
+        service.generate_image = AsyncMock(return_value="https://example.com/image.png")
+        mock_service_cls.return_value = service
+
+        response = client.get("/images/generate?prompt=landscape&width=400&height=200")
+
+    assert response.status_code == 200
+    request = service.generate_image.await_args.args[0]
+    assert request.target_size == (400, 200)
+
+
+def test_generate_image_rejects_incomplete_target_dimensions(fake_async_session):
+    response = _build_client(fake_async_session).get(
+        "/images/generate?prompt=landscape&width=400"
+    )
+    assert response.status_code == 422
+
+
 def test_generate_image_returns_placeholder_without_db_write(fake_async_session):
     client = _build_client(fake_async_session)
 

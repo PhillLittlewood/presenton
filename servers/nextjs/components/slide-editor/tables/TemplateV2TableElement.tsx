@@ -1,4 +1,4 @@
-import { Group, Rect, Text } from "react-konva";
+import { Group, Line, Rect, Text } from "react-konva";
 import { renderMarkdownTextRuns } from "@/components/slide-editor/text/markdown-text";
 import type { TextRun } from "@/components/slide-editor/types";
 import {
@@ -63,6 +63,10 @@ export function TemplateV2TableElement({
           const forceHeaderBold =
             rowIndex === 0 && !hasExplicitBold(cell, firstRun);
           const fill = fillColor(cell.fill ?? cell.color);
+          const rawBorders = asRecord(cell.borders);
+          const borders = rawBorders && Object.keys(rawBorders).length > 0
+            ? rawBorders
+            : null;
           const runs = readableTableCellRuns(
             rawTableCellRuns(cell, cellFont),
             fill,
@@ -118,9 +122,16 @@ export function TemplateV2TableElement({
                 width={cellW}
                 height={cellH}
                 fill={fill ?? "rgba(0,0,0,0)"}
-                stroke={strokeColor(cell.stroke) ?? "#D0D5DD"}
-                strokeWidth={strokeWidth(cell.stroke) || 1}
+                stroke={borders ? undefined : strokeColor(cell.stroke) ?? "#D0D5DD"}
+                strokeWidth={borders ? 0 : strokeWidth(cell.stroke) || 1}
               />
+              {borders ? (
+                <TableCellBorderLines
+                  borders={borders}
+                  width={cellW}
+                  height={cellH}
+                />
+              ) : null}
               <TableCellText
                 x={6}
                 y={4}
@@ -145,6 +156,58 @@ export function TemplateV2TableElement({
       />
     </Group>
   );
+}
+
+function TableCellBorderLines({
+  borders,
+  width,
+  height,
+}: {
+  borders: UnknownRecord;
+  width: number;
+  height: number;
+}) {
+  const sides = [
+    ["top", [0, 0, width, 0]],
+    ["right", [width, 0, width, height]],
+    ["bottom", [0, height, width, height]],
+    ["left", [0, 0, 0, height]],
+  ] as const;
+
+  return sides.map(([side, points]) => {
+    const stroke = asRecord(borders[side]);
+    const borderWidth = strokeWidth(stroke);
+    const color = colorWithOpacity(
+      strokeColor(stroke),
+      readNumber(stroke?.opacity) ?? 1,
+    );
+    if (!stroke || !color || borderWidth <= 0) return null;
+    const dash = readArray(stroke.dash)
+      .map(readNumber)
+      .filter((value): value is number => value != null && value >= 0);
+    const lineCap = readString(stroke.line_cap ?? stroke.lineCap);
+    const lineJoin = readString(stroke.line_join ?? stroke.lineJoin);
+    return (
+      <Line
+        key={side}
+        points={[...points]}
+        stroke={color}
+        strokeWidth={borderWidth}
+        dash={dash.length > 0 ? dash : undefined}
+        lineCap={
+          lineCap === "butt" || lineCap === "round" || lineCap === "square"
+            ? lineCap
+            : undefined
+        }
+        lineJoin={
+          lineJoin === "bevel" || lineJoin === "miter" || lineJoin === "round"
+            ? lineJoin
+            : undefined
+        }
+        listening={false}
+      />
+    );
+  });
 }
 
 function TableCellText({

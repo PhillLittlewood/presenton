@@ -4,6 +4,11 @@ export interface ApiErrorResponse {
   error?: unknown;
 }
 
+export interface ApiErrorMetadata {
+  code?: string;
+  retryable: boolean;
+}
+
 const INVALID_API_KEY_MESSAGE =
   "Invalid API key. Please verify your API key and try again.";
 const SAFETY_BLOCK_MESSAGE =
@@ -11,6 +16,26 @@ const SAFETY_BLOCK_MESSAGE =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function extractApiErrorMetadata(
+  errorData: unknown,
+  status?: number
+): ApiErrorMetadata {
+  const root = isRecord(errorData) ? errorData : null;
+  const detail = root && isRecord(root.detail) ? root.detail : null;
+  const error = root && isRecord(root.error) ? root.error : null;
+  const metadata = detail || error || root;
+  const code =
+    metadata && typeof metadata.code === "string" && metadata.code.trim()
+      ? metadata.code.trim()
+      : undefined;
+  const retryable =
+    metadata && typeof metadata.retryable === "boolean"
+      ? metadata.retryable
+      : Boolean(status && [408, 425, 429, 500, 502, 503, 504].includes(status));
+
+  return { code, retryable };
 }
 
 function nestedMessage(value: unknown): string | null {
@@ -95,6 +120,8 @@ function looksLikeRawPayload(message: string): boolean {
   return (
     text.startsWith("{") ||
     text.startsWith("[") ||
+    text.toLowerCase().startsWith("<!doctype") ||
+    text.toLowerCase().startsWith("<html") ||
     text.includes("{'error'") ||
     text.includes('"error"') ||
     text.includes("Error code:")

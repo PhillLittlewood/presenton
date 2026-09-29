@@ -191,6 +191,7 @@ function StaticHtmlTextElement({
       }}
     >
       <div
+        dir="auto"
         style={{
           boxSizing: "border-box",
           margin: 0,
@@ -198,6 +199,7 @@ function StaticHtmlTextElement({
           width: "100%",
           whiteSpace: "pre-wrap",
           overflowWrap: "break-word",
+          unicodeBidi: "plaintext",
         }}
       >
         {(runs.length > 0 ? runs : [{ text: " ", font: baseFont }]).map(

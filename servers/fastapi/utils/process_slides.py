@@ -1,5 +1,8 @@
 import asyncio
-from typing import List, Optional, Sequence
+import copy
+import math
+import uuid
+from typing import Any, Callable, List, Optional, Sequence
 
 from models.image_prompt import ImagePrompt
 from models.json_path_guide import JsonPathGuide
@@ -19,6 +22,81 @@ from utils.image_generation_error import image_generation_warning
 IMAGE_PROMPT_KEYS = ("__image_prompt__", "image_prompt", "prompt")
 ICON_QUERY_KEYS = ("__icon_query__", "icon_query", "query")
 TEMPLATE_ASSET_MARKER_KEYS = ("image_url", "icon_url", "image_prompt", "icon_query")
+ImageTargetSizes = dict[tuple[tuple[str, str | int], ...], tuple[float, float]]
+
+
+def _path_key(path: JsonPathGuide) -> tuple[tuple[str, str | int], ...]:
+    return tuple(
+        ("key", guide.key) if hasattr(guide, "key") else ("index", guide.index)
+        for guide in path.guides
+    )
+
+
+def image_target_sizes_from_template(
+    layout: dict | None,
+    content: dict,
+    hydrate: Callable[[dict, dict], dict | None],
+) -> ImageTargetSizes:
+    """Match editable content images to layout boxes using the normal hydrator.
+
+    Unique temporary image URLs identify individual slots even when prompts repeat.
+    Neither the content nor the template layout is modified.
+    """
+    if not isinstance(layout, dict) or not isinstance(content, dict):
+        return {}
+    tagged_content = copy.deepcopy(content)
+    markers: dict[str, tuple[tuple[str, str | int], ...]] = {}
+    nonce = uuid.uuid4().hex
+    for index, (path, _asset, _prompt) in enumerate(
+        _asset_dicts_with_prompt(tagged_content, IMAGE_PROMPT_KEYS)
+    ):
+        marker = f"https://presenton.invalid/image-slot/{nonce}/{index}"
+        tagged_asset = get_dict_at_path(tagged_content, path)
+        tagged_asset["image_url"] = marker
+        if "data" in tagged_asset:
+            tagged_asset["data"] = marker
+        if "url" in tagged_asset:
+            tagged_asset["url"] = marker
+        markers[marker] = _path_key(path)
+
+    hydrated_layout = copy.deepcopy(layout)
+    try:
+        result = hydrate(hydrated_layout, tagged_content)
+    except Exception:
+        # Sizing is optional; a layout mismatch must not stop image generation.
+        return {}
+    if isinstance(result, dict):
+        hydrated_layout = result
+    sizes: ImageTargetSizes = {}
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            source = value.get("data")
+            path_key = (
+                markers.get(source)
+                if value.get("type") == "image" and isinstance(source, str)
+                else None
+            )
+            if path_key is not None:
+                size = value.get("size")
+                if isinstance(size, dict):
+                    width, height = size.get("width"), size.get("height")
+                    if all(
+                        isinstance(number, (int, float))
+                        and not isinstance(number, bool)
+                        and math.isfinite(number)
+                        and number > 0
+                        for number in (width, height)
+                    ):
+                        sizes[path_key] = (float(width), float(height))
+            for child in value.values():
+                visit(child)
+
+    visit(hydrated_layout)
+    return sizes
 
 
 def _uses_template_asset_fields(slide: SlideModel) -> bool:
@@ -99,6 +177,7 @@ async def process_slide_and_fetch_assets(
     icon_weight: str = DEFAULT_ICON_WEIGHT,
     allow_image_fallback: bool = False,
     image_warnings: Optional[List[dict]] = None,
+    image_target_sizes: ImageTargetSizes | None = None,
 ) -> List[ImageAsset]:
 
     async_tasks = []
@@ -127,9 +206,14 @@ async def process_slide_and_fetch_assets(
             set_dict_at_path(slide.content, image_path, image_parent)
             continue
 
+        target_size = (image_target_sizes or {}).get(_path_key(image_path))
         async_tasks.append(
             image_generation_service.generate_image(
-                ImagePrompt(prompt=image_prompt)
+                ImagePrompt(
+                    prompt=image_prompt,
+                    target_width=target_size[0] if target_size else None,
+                    target_height=target_size[1] if target_size else None,
+                )
             )
         )
         async_task_meta.append(("image", image_path))
@@ -212,6 +296,8 @@ async def process_old_and_new_slides_and_fetch_assets(
     use_template_asset_fields: bool = False,
     allow_image_fallback: bool = False,
     image_warnings: Optional[List[dict]] = None,
+    old_image_target_sizes: ImageTargetSizes | None = None,
+    new_image_target_sizes: ImageTargetSizes | None = None,
 ) -> List[ImageAsset]:
     resolved_icon_weight = normalize_icon_weight(icon_weight)
     old_image_assets = _asset_dicts_with_prompt(
@@ -224,8 +310,8 @@ async def process_old_and_new_slides_and_fetch_assets(
     new_icon_assets = _asset_dicts_with_prompt(new_slide_content, ICON_QUERY_KEYS)
 
     old_image_urls = {
-        prompt: image_url
-        for _path, asset, prompt in old_image_assets
+        (prompt, (old_image_target_sizes or {}).get(_path_key(path))): image_url
+        for path, asset, prompt in old_image_assets
         if (
             image_url := _get_asset_url(
                 asset,
@@ -248,17 +334,25 @@ async def process_old_and_new_slides_and_fetch_assets(
 
     async_image_fetch_tasks = []
     fetched_image_targets = []
-    for _path, new_image, image_prompt in new_image_assets:
-        if image_prompt in old_image_urls:
+    for path, new_image, image_prompt in new_image_assets:
+        target_size = (new_image_target_sizes or {}).get(_path_key(path))
+        image_key = (image_prompt, target_size)
+        if image_key in old_image_urls:
             _set_asset_url(
                 new_image,
                 "image",
-                old_image_urls[image_prompt],
+                old_image_urls[image_key],
                 template=use_template_asset_fields,
             )
             continue
         async_image_fetch_tasks.append(
-            image_generation_service.generate_image(ImagePrompt(prompt=image_prompt))
+            image_generation_service.generate_image(
+                ImagePrompt(
+                    prompt=image_prompt,
+                    target_width=target_size[0] if target_size else None,
+                    target_height=target_size[1] if target_size else None,
+                )
+            )
         )
         fetched_image_targets.append(new_image)
 

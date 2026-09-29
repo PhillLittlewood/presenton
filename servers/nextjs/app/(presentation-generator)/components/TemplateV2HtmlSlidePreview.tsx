@@ -452,6 +452,7 @@ export function TemplateV2HtmlSlidePreview({
         <div
           ref={contentRef}
           aria-label="Template v2 slide preview"
+          data-tailwind-runtime-scope
           className={`block h-full w-full bg-white ${contentClassName}`}
           style={{ pointerEvents: "none" }}
           dangerouslySetInnerHTML={htmlMarkup}

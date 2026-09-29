@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from typing import Any, Sequence
 
 import aiohttp
 from fastapi import HTTPException
+
+from utils.get_env import is_community_enabled
 
 
 DEFAULT_COMMUNITY_API_URL = (
@@ -14,6 +17,143 @@ DEFAULT_COMMUNITY_API_URL = (
 MAX_COMMUNITY_REFERENCES = 3
 MAX_REFERENCE_SLIDES = 6
 MAX_REFERENCE_CHARACTERS = 90_000
+MAX_UPSTREAM_ERROR_LENGTH = 500
+
+
+def community_http_error(
+    status_code: int,
+    *,
+    code: str,
+    message: str,
+    retryable: bool,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+        },
+    )
+
+
+def _clean_upstream_message(value: str) -> str | None:
+    message = " ".join(value.split()).strip()
+    if not message:
+        return None
+    lowered = message.lower()
+    if lowered.startswith(("<!doctype", "<html", "{", "[")):
+        return None
+    return message[:MAX_UPSTREAM_ERROR_LENGTH]
+
+
+def extract_community_upstream_message(payload: Any, depth: int = 0) -> str | None:
+    if depth > 3 or payload is None:
+        return None
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if stripped.startswith(("{", "[")):
+            try:
+                return extract_community_upstream_message(
+                    json.loads(stripped),
+                    depth + 1,
+                )
+            except json.JSONDecodeError:
+                return None
+        return _clean_upstream_message(stripped)
+    if isinstance(payload, dict):
+        for key in ("detail", "message", "error"):
+            message = extract_community_upstream_message(
+                payload.get(key),
+                depth + 1,
+            )
+            if message:
+                return message
+    if isinstance(payload, list):
+        for item in payload[:3]:
+            message = extract_community_upstream_message(item, depth + 1)
+            if message:
+                return message
+    return None
+
+
+def community_upstream_http_error(
+    upstream_status: int,
+    payload: Any = None,
+    *,
+    not_found_message: str = (
+        "The requested community presentation was not found or is no longer shared."
+    ),
+) -> HTTPException:
+    upstream_message = extract_community_upstream_message(payload)
+
+    if upstream_status == 404:
+        return community_http_error(
+            404,
+            code="community_presentation_not_found",
+            message=upstream_message or not_found_message,
+            retryable=False,
+        )
+    if upstream_status in {400, 409, 422}:
+        return community_http_error(
+            upstream_status,
+            code="community_request_rejected",
+            message=upstream_message
+            or "The Community service could not process this request.",
+            retryable=False,
+        )
+    if upstream_status == 429:
+        return community_http_error(
+            429,
+            code="community_rate_limited",
+            message=upstream_message
+            or "The Community service is receiving too many requests. Please try again shortly.",
+            retryable=True,
+        )
+    if upstream_status in {401, 403}:
+        return community_http_error(
+            502,
+            code="community_service_authentication_failed",
+            message=(
+                "The Community service rejected the server connection. "
+                "Please check the Community service configuration."
+            ),
+            retryable=False,
+        )
+    if upstream_status >= 500:
+        return community_http_error(
+            503,
+            code="community_service_unavailable",
+            message=(
+                f"The Community service is temporarily unavailable "
+                f"(upstream status {upstream_status}). Please try again later."
+            ),
+            retryable=True,
+        )
+    return community_http_error(
+        502,
+        code="community_upstream_error",
+        message=(
+            f"The Community service returned an unexpected response "
+            f"(upstream status {upstream_status}). Please try again."
+        ),
+        retryable=True,
+    )
+
+
+def require_community_enabled() -> None:
+    if not is_community_enabled():
+        raise community_http_error(
+            404,
+            code="community_disabled",
+            message="Community is disabled for this deployment.",
+            retryable=False,
+        )
 
 
 def get_community_api_url() -> str:
@@ -62,6 +202,7 @@ def normalize_community_ids(values: Sequence[int] | None) -> list[int]:
 
 
 async def _cloud_get(path: str, params: dict[str, Any] | None = None) -> Any:
+    require_community_enabled()
     url = f"{get_community_api_url()}{path}"
     timeout = aiohttp.ClientTimeout(total=30)
     try:
@@ -71,23 +212,74 @@ async def _cloud_get(path: str, params: dict[str, Any] | None = None) -> Any:
             trust_env=True,
         ) as session:
             async with session.get(url, params=params) as response:
-                if response.status == 404:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Community presentation not found",
-                    )
                 if response.status >= 400:
-                    raise HTTPException(
-                        status_code=502,
-                        detail="The Presenton community service is unavailable",
+                    raise community_upstream_http_error(
+                        response.status,
+                        await response.read(),
+                        not_found_message=(
+                            "The requested community presentation was not found "
+                            "or is no longer shared."
+                            if path
+                            else (
+                                "The Community gallery endpoint was not found. "
+                                "Check PRESENTON_COMMUNITY_API_URL."
+                            )
+                        ),
                     )
-                return await response.json()
+                response_body = await response.read()
+                try:
+                    return json.loads(response_body)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise community_http_error(
+                        502,
+                        code="community_invalid_response",
+                        message=(
+                            "The Community service returned an unreadable response. "
+                            "Please try again."
+                        ),
+                        retryable=True,
+                    ) from exc
     except HTTPException:
         raise
-    except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="The Presenton community service is unavailable",
+    except aiohttp.InvalidURL as exc:
+        raise community_http_error(
+            500,
+            code="community_service_url_invalid",
+            message=(
+                "The Community service URL is invalid. "
+                "Check PRESENTON_COMMUNITY_API_URL."
+            ),
+            retryable=False,
+        ) from exc
+    except TimeoutError as exc:
+        raise community_http_error(
+            504,
+            code="community_service_timeout",
+            message=(
+                "The Community service did not respond within 30 seconds. "
+                "Please try again."
+            ),
+            retryable=True,
+        ) from exc
+    except aiohttp.ClientConnectorError as exc:
+        raise community_http_error(
+            503,
+            code="community_service_unreachable",
+            message=(
+                "Could not connect to the Community service. "
+                "Check this server's network access and Community service URL."
+            ),
+            retryable=True,
+        ) from exc
+    except aiohttp.ClientError as exc:
+        raise community_http_error(
+            502,
+            code="community_request_failed",
+            message=(
+                "The request to the Community service failed before a valid "
+                "response was received. Please try again."
+            ),
+            retryable=True,
         ) from exc
 
 
@@ -106,6 +298,7 @@ async def list_community_presentations(
     order_by: str = "priority",
     order: str = "desc",
 ) -> dict[str, Any]:
+    require_community_enabled()
     filters = {
         "created_at_gt": created_at_gt,
         "created_at_lt": created_at_lt,
@@ -127,21 +320,37 @@ async def list_community_presentations(
         },
     )
     if not isinstance(payload, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="The Presenton community service returned invalid data",
+        raise community_http_error(
+            502,
+            code="community_invalid_list_response",
+            message=(
+                "The Community service returned an invalid presentation list. "
+                "Please try again."
+            ),
+            retryable=True,
         )
     return payload
 
 
 async def get_community_presentation(community_id: int) -> dict[str, Any]:
+    require_community_enabled()
     if community_id <= 0:
-        raise HTTPException(status_code=422, detail="Invalid community presentation ID")
+        raise community_http_error(
+            422,
+            code="community_presentation_id_invalid",
+            message="The community presentation ID must be a positive integer.",
+            retryable=False,
+        )
     payload = await _cloud_get(f"/{community_id}")
     if not isinstance(payload, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="The Presenton community service returned invalid data",
+        raise community_http_error(
+            502,
+            code="community_invalid_presentation_response",
+            message=(
+                "The Community service returned invalid presentation data. "
+                "Please try again."
+            ),
+            retryable=True,
         )
     return payload
 
@@ -149,6 +358,8 @@ async def get_community_presentation(community_id: int) -> dict[str, Any]:
 async def load_community_references(
     community_ids: Sequence[int] | None,
 ) -> list[CommunityPresentationReference]:
+    if community_ids:
+        require_community_enabled()
     references: list[CommunityPresentationReference] = []
     for community_id in normalize_community_ids(community_ids):
         payload = await get_community_presentation(community_id)
@@ -158,9 +369,14 @@ async def load_community_references(
             if isinstance(slide, str) and slide.strip()
         )
         if not slides:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Community reference {community_id} has no HTML slides",
+            raise community_http_error(
+                422,
+                code="community_reference_has_no_slides",
+                message=(
+                    f"Community presentation {community_id} does not contain "
+                    "usable slide designs. Choose another presentation."
+                ),
+                retryable=False,
             )
         fonts = payload.get("fonts")
         references.append(

@@ -21,7 +21,9 @@ import {
   type Slide,
   type SlideElement,
   type Stroke,
+  type StrokeMarker,
   type TableCell,
+  type TableCellBorders,
   type TextElement,
   type TextListItem,
   type TextRun,
@@ -39,6 +41,8 @@ type AdaptedBaseElement = {
   position?: AdaptedPosition | null;
   size?: AdaptedSize | null;
   rotation?: number | null;
+  flip_h?: boolean | null;
+  flip_v?: boolean | null;
   opacity?: number | null;
   shadow?: Shadow | null;
   component_id?: string | null;
@@ -421,7 +425,7 @@ function authorInfoCardRightEdge(group: GroupElement) {
 
   if (backgroundRightEdge != null) return backgroundRightEdge;
 
-  return group.size.width;
+  return group.size?.width ?? EDITOR_STAGE_WIDTH;
 }
 
 function vectorBackgroundRightEdge(
@@ -600,22 +604,21 @@ function rawVectorFrame(
   if (readString(element.type) !== "vector") return null;
   const points = readArray(element, "points")
     .map(asRecord)
-    .filter((point): point is UnknownRecord => point != null);
-  const xs = points
-    .map((point) => readNumber(point, "x"))
-    .filter((value): value is number => value != null);
-  const ys = points
-    .map((point) => readNumber(point, "y"))
-    .filter((value): value is number => value != null);
-  if (xs.length === 0 || ys.length === 0) return null;
+    .map((point) => {
+      const x = readNumber(point ?? {}, "x");
+      const y = readNumber(point ?? {}, "y");
+      return x != null && y != null ? { x, y } : null;
+    })
+    .filter((point): point is { x: number; y: number } => point != null);
+  if (points.length === 0) return null;
 
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
+  const minX = Math.min(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
   return {
     x: offsetX + minX,
     y: offsetY + minY,
-    width: Math.max(1, Math.max(...xs) - minX),
-    height: Math.max(1, Math.max(...ys) - minY),
+    width: Math.max(1, Math.max(...points.map((point) => point.x)) - minX),
+    height: Math.max(1, Math.max(...points.map((point) => point.y)) - minY),
   };
 }
 
@@ -683,6 +686,21 @@ function localizeRawElementToFrame(
       },
     }
     : { ...element };
+
+  if (readString(localized.type) === "vector") {
+    localized.points = readArray(localized, "points").map((point) => {
+      const rawPoint = asRecord(point);
+      if (!rawPoint) return point;
+      const x = readNumber(rawPoint, "x");
+      const y = readNumber(rawPoint, "y");
+      if (x == null || y == null) return point;
+      return {
+        ...rawPoint,
+        x: x - frame.x,
+        y: y - frame.y,
+      };
+    });
+  }
 
   if (!position) {
     const children = readArray(localized, "children");
@@ -822,6 +840,8 @@ function adaptTextList(raw: UnknownRecord): SlideElement {
     type: "text-list",
     font,
     marker,
+    gap: clampOptional(readNumber(raw, "gap"), 0, 720),
+    marker_gap: clampOptional(readNumber(raw, "marker_gap"), 0, 720),
     items: adaptTextListItems(readArray(raw, "items")),
     max_items: readNumber(raw, "max_items"),
     min_items: readNumber(raw, "min_items"),
@@ -866,6 +886,7 @@ function adaptVector(raw: UnknownRecord): SlideElement | null {
   return {
     ...pointBase,
     type: "vector",
+    name: adaptElementName(raw),
     shape: readEnum(raw, ["polygon", "ellipse"], "shape") ?? undefined,
     points,
     closed: adaptVectorClosed(raw, points),
@@ -948,7 +969,7 @@ function adaptChart(raw: UnknownRecord): SlideElement {
   const series = readArray(raw, "series")
     .map(adaptChartSeries)
     .filter((item): item is ChartSeries => item != null);
-  const chartType =
+  const importedChartType =
     readEnum(
       raw,
       [
@@ -968,6 +989,7 @@ function adaptChart(raw: UnknownRecord): SlideElement {
       "chart_type",
     ) ??
     "bar";
+  const chartType = importedChartType === "bubble" ? "scatter" : importedChartType;
   const supportedSeries =
     chartType === "pie" || chartType === "donut"
       ? series.slice(0, 1)
@@ -997,12 +1019,20 @@ function adaptChart(raw: UnknownRecord): SlideElement {
     data: data.length > 0 ? data : [{ label: "Data", value: 0 }],
     title: truncateString(readString(raw.title) ?? "", 80) || null,
     title_color: readColor(readValue(raw, "title_color") ?? raw.titleColor),
+    text_color: readColor(readValue(raw, "text_color") ?? raw.textColor),
     legend_color: readColor(readValue(raw, "legend_color") ?? raw.legendColor),
     color,
     axis_color: readColor(readValue(raw, "axis_color")),
     grid_color: readColor(readValue(raw, "grid_color")),
     data_labels: dataLabels,
     legend: readBoolean(raw, "legend"),
+    legend_position: readEnum(
+      raw,
+      ["left", "right", "top", "bottom"],
+      Object.prototype.hasOwnProperty.call(raw, "legend_position")
+        ? "legend_position"
+        : "legendPosition",
+    ),
     colors,
     x_axis: readBoolean(raw, "x_axis"),
     y_axis: readBoolean(raw, "y_axis"),
@@ -1047,6 +1077,7 @@ function adaptInfographic(raw: UnknownRecord): SlideElement {
         "chevron_process",
         "radial_cycle",
         "conversion_funnel",
+        "vertical_funnel",
         "pyramid",
         "segmented_wheel",
         "customer_journey",
@@ -1079,6 +1110,7 @@ function adaptInfographic(raw: UnknownRecord): SlideElement {
         "chevron_process",
         "radial_cycle",
         "conversion_funnel",
+        "vertical_funnel",
         "pyramid",
         "segmented_wheel",
         "customer_journey",
@@ -1149,6 +1181,7 @@ function adaptInfographicData(
     | "chevron_process"
     | "radial_cycle"
     | "conversion_funnel"
+    | "vertical_funnel"
     | "pyramid"
     | "segmented_wheel"
     | "customer_journey"
@@ -1271,7 +1304,7 @@ function adaptInfographicData(
     return { type, center_label: truncateString(readString(data.center_label) ?? "RISK", 4), items: defaults.map((heading, index) => items[index] ?? { heading }) };
   }
 
-  if (type === "conversion_funnel") {
+  if (type === "conversion_funnel" || type === "vertical_funnel") {
     const items = readArray(data, "items")
       .map(asRecord)
       .filter((item): item is UnknownRecord => Boolean(item))
@@ -1580,6 +1613,10 @@ function baseElement(
   if (readNumber(raw, "rotation") != null) {
     base.rotation = clamp(readNumber(raw, "rotation") ?? 0, -360, 360);
   }
+  const flipH = readBoolean(raw, "flip_h") ?? readBoolean(raw, "flipH");
+  const flipV = readBoolean(raw, "flip_v") ?? readBoolean(raw, "flipV");
+  if (flipH != null) base.flip_h = flipH;
+  if (flipV != null) base.flip_v = flipV;
   if (readNumber(raw, "opacity") != null) {
     base.opacity = clamp(readNumber(raw, "opacity") ?? 1, 0, 1);
   }
@@ -1614,6 +1651,10 @@ function baseElement(
   if (layout) base.layout = { ...(base.layout ?? {}), ...layout };
 
   return base;
+}
+
+function adaptElementName(raw: UnknownRecord) {
+  return truncateString(readString(raw.name) ?? "", 120) || null;
 }
 
 function requiredBaseElement(raw: UnknownRecord): AdaptedRequiredBaseElement {
@@ -1771,11 +1812,43 @@ function adaptStroke(value: UnknownRecord | null): Stroke | null {
   return stripNullish({
     color,
     opacity: clamp(readNumber(value ?? {}, "opacity") ?? 1, 0, 1),
-    width: clamp(round(readNumber(value ?? {}, "width") ?? 1), 0, 8),
+    width: clamp(round(readNumber(value ?? {}, "width") ?? 1), 0, 720),
     dash: readArray(value ?? {}, "dash")
       .map((item) => readRawNumber(item))
       .filter((item): item is number => item != null && item >= 0),
+    line_cap: readEnum(value ?? {}, ["butt", "round", "square"], "line_cap"),
+    line_join: readEnum(value ?? {}, ["bevel", "miter", "round"], "line_join"),
+    start_marker: adaptStrokeMarker(readRecord(value ?? {}, "start_marker")),
+    end_marker: adaptStrokeMarker(readRecord(value ?? {}, "end_marker")),
   });
+}
+
+function adaptStrokeMarker(value: UnknownRecord | null): StrokeMarker | null {
+  if (!value) return null;
+  const type = readEnum(
+    value,
+    ["arrow", "diamond", "open", "oval", "stealth", "triangle"],
+    "type",
+  );
+  if (!type) return null;
+  return stripNullish({
+    type,
+    length: readEnum(value, ["sm", "med", "lg"], "length"),
+    width: readEnum(value, ["sm", "med", "lg"], "width"),
+  });
+}
+
+function adaptTableCellBorders(
+  value: UnknownRecord | null,
+): TableCellBorders | null {
+  if (!value) return null;
+  const borders = stripNullish({
+    top: adaptStroke(readRecord(value, "top")),
+    right: adaptStroke(readRecord(value, "right")),
+    bottom: adaptStroke(readRecord(value, "bottom")),
+    left: adaptStroke(readRecord(value, "left")),
+  });
+  return Object.keys(borders).length > 0 ? borders : null;
 }
 
 function hasVisiblePaint(
@@ -1920,6 +1993,7 @@ function adaptTableCells(value: unknown[]): TableCell[] {
           ["left", "center", "right", "justify"],
           "alignment",
         ),
+        borders: adaptTableCellBorders(readRecord(record, "borders")),
         runs,
       }) as TableCell;
     })

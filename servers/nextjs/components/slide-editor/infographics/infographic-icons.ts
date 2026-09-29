@@ -1,4 +1,7 @@
-import type { InfographicIcon } from "@/components/slide-editor/types";
+export type NormalizedInfographicIcon = {
+  url: string;
+  color: string;
+};
 
 export const INFOGRAPHIC_EXAMPLE_ICON_URLS = {
   discover: "/static/icons/bold/binoculars-bold.svg",
@@ -10,7 +13,7 @@ export const INFOGRAPHIC_EXAMPLE_ICON_URLS = {
 
 const DEFAULT_ICON_URLS = Object.values(INFOGRAPHIC_EXAMPLE_ICON_URLS);
 
-export function defaultInfographicIcon(index = 0): InfographicIcon {
+export function defaultInfographicIcon(index = 0): NormalizedInfographicIcon {
   const safeIndex = Math.max(0, Math.floor(index));
   return {
     url: DEFAULT_ICON_URLS[safeIndex % DEFAULT_ICON_URLS.length],

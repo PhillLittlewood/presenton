@@ -25,17 +25,23 @@ from services.mem0_presentation_memory_service import MEM0_PRESENTATION_MEMORY_S
 from services.temp_file_service import TEMP_FILE_SERVICE
 from templates.presentation_layout import PresentationLayoutModel, SlideLayoutModel
 from templates.v2.schema import get_template_schema
-from templates.v2.content import hydrate_repeated_top_level_groups
+from templates.v2.content import (
+    hydrate_repeated_top_level_groups,
+    infographic_markdown_to_plain_text,
+    repeated_child_source_index,
+)
 from utils.asset_directory_utils import (
     filesystem_image_path_to_app_data_url,
     get_images_directory,
     normalize_slide_asset_url,
 )
 from utils.icon_weights import DEFAULT_ICON_WEIGHT, extract_icon_type_from_settings
+from utils.infographic_catalog import normalize_infographic_data
 from utils.latex_text import normalize_latex, replace_text_runs, text_runs_to_tagged_text
 from utils.outline_utils import get_presentation_title_from_presentation_outline
 from utils.outline_limits import normalize_outline_content
 from utils.process_slides import (
+    image_target_sizes_from_template,
     process_old_and_new_slides_and_fetch_assets,
     process_slide_and_fetch_assets,
 )
@@ -124,7 +130,7 @@ CHAT_BUILTIN_THEMES: list[dict[str, Any]] = [
             "fonts": {
                 "textFont": {
                     "name": "Playfair Display",
-                    "url": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&display=swap",
+                    "url": "/vendor/fonts/serif/playfairdisplay/PlayfairDisplay[wght].ttf",
                 }
             },
         },
@@ -158,8 +164,8 @@ CHAT_BUILTIN_THEMES: list[dict[str, Any]] = [
             },
             "fonts": {
                 "textFont": {
-                    "name": "Overpass",
-                    "url": "https://fonts.googleapis.com/css2?family=Overpass:wght@100..900&display=swap",
+                    "name": "Outfit",
+                    "url": "/vendor/fonts/sans_serif/outfit/Outfit[wght].ttf",
                 }
             },
         },
@@ -193,8 +199,8 @@ CHAT_BUILTIN_THEMES: list[dict[str, Any]] = [
             },
             "fonts": {
                 "textFont": {
-                    "name": "Prompt",
-                    "url": "https://fonts.googleapis.com/css2?family=Prompt:wght@100..900&display=swap",
+                    "name": "Poppins",
+                    "url": "/vendor/fonts/sans_serif/poppins/Poppins-Regular.ttf",
                 }
             },
         },
@@ -229,7 +235,7 @@ CHAT_BUILTIN_THEMES: list[dict[str, Any]] = [
             "fonts": {
                 "textFont": {
                     "name": "Inter",
-                    "url": "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
+                    "url": "/vendor/fonts/sans_serif/inter/Inter[opsz,wght].ttf",
                 }
             },
         },
@@ -263,8 +269,8 @@ CHAT_BUILTIN_THEMES: list[dict[str, Any]] = [
             },
             "fonts": {
                 "textFont": {
-                    "name": "Instrument Sans",
-                    "url": "https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&display=swap",
+                    "name": "DM Sans",
+                    "url": "/vendor/fonts/sans_serif/dmsans/DMSans[opsz,wght].ttf",
                 }
             },
         },
@@ -290,7 +296,7 @@ THEME_COLOR_KEYS = [
 ]
 DEFAULT_THEME_FONT = {
     "name": "Inter",
-    "url": "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
+    "url": "/vendor/fonts/sans_serif/inter/Inter[opsz,wght].ttf",
 }
 
 
@@ -1024,6 +1030,12 @@ class PresentationChatMemoryLayer:
 
             updated_content = copy.deepcopy(content)
             image_warnings: list[dict] = []
+            old_layout = await self._get_template_raw_layout_by_id(
+                presentation=presentation, layout_id=existing_slide.layout
+            )
+            new_layout = await self._get_template_raw_layout_by_id(
+                presentation=presentation, layout_id=layout_id
+            )
             new_assets = await process_old_and_new_slides_and_fetch_assets(
                 image_generation_service=image_generation_service,
                 old_slide_content=existing_slide.content or {},
@@ -1036,6 +1048,16 @@ class PresentationChatMemoryLayer:
                 ),
                 allow_image_fallback=True,
                 image_warnings=image_warnings,
+                old_image_target_sizes=image_target_sizes_from_template(
+                    old_layout or existing_slide.ui,
+                    existing_slide.content or {},
+                    self._apply_template_content_to_ui,
+                ),
+                new_image_target_sizes=image_target_sizes_from_template(
+                    new_layout,
+                    updated_content,
+                    self._apply_template_content_to_ui,
+                ),
             )
             for warning in image_warnings:
                 LOGGER.warning(
@@ -1112,12 +1134,20 @@ class PresentationChatMemoryLayer:
             speaker_note=self._extract_speaker_note(new_slide_content),
         )
         image_warnings: list[dict] = []
+        source_layout = await self._get_template_raw_layout_by_id(
+            presentation=presentation, layout_id=layout_id
+        )
         new_assets = await process_slide_and_fetch_assets(
             image_generation_service=image_generation_service,
             slide=new_slide,
             icon_weight=icon_weight,
             allow_image_fallback=True,
             image_warnings=image_warnings,
+            image_target_sizes=image_target_sizes_from_template(
+                source_layout,
+                new_slide.content,
+                self._apply_template_content_to_ui,
+            ),
         )
         for warning in image_warnings:
             LOGGER.warning(
@@ -3816,17 +3846,28 @@ class PresentationChatMemoryLayer:
         has_value = False
         value = None
         if isinstance(name, str):
-            if preferred_content_keys is None and name_occurrences is not None:
-                preferred_content_keys = cls._template_repeated_content_keys_for_name(
-                    name,
+            if direct_value and element_type in {"container", "flex", "grid", "group"}:
+                if name in content_values:
+                    has_value = True
+                    value = content_values[name]
+                elif len(content_values) == 1:
+                    for candidate in cls._template_content_name_candidates(name)[1:]:
+                        if candidate in content_values:
+                            has_value = True
+                            value = content_values[candidate]
+                            break
+            else:
+                if preferred_content_keys is None and name_occurrences is not None:
+                    preferred_content_keys = cls._template_repeated_content_keys_for_name(
+                        name,
+                        content_values,
+                        name_occurrences,
+                    )
+                has_value, value = cls._template_content_value(
                     content_values,
-                    name_occurrences,
+                    name,
+                    preferred_keys=preferred_content_keys,
                 )
-            has_value, value = cls._template_content_value(
-                content_values,
-                name,
-                preferred_keys=preferred_content_keys,
-            )
 
         if (
             has_value
@@ -3876,8 +3917,15 @@ class PresentationChatMemoryLayer:
             if isinstance(value, list) and children:
                 next_children: list[Any] = []
                 for index, item in enumerate(value):
-                    source_child = copy.deepcopy(children[min(index, len(children) - 1)])
+                    source_index = repeated_child_source_index(
+                        index,
+                        template_count=len(children),
+                        content_count=len(value),
+                        center_when_reduced=element_type == "group",
+                    )
+                    source_child = copy.deepcopy(children[source_index])
                     if isinstance(source_child, dict):
+                        source_child.pop("__presenton_manual_position", None)
                         cls._apply_template_element_content(
                             source_child,
                             item,
@@ -4054,14 +4102,22 @@ class PresentationChatMemoryLayer:
         value: dict[str, Any],
     ) -> None:
         data = value.get("data")
-        if isinstance(data, dict) and data.get("type") in {"progress_bar", "gauge"}:
-            next_data: dict[str, Any] = {"type": data["type"]}
-            for key in ("min_value", "max_value", "value"):
-                raw = data.get(key)
-                if isinstance(raw, (int, float)):
-                    next_data[key] = float(raw)
-            if {"min_value", "max_value", "value"}.issubset(next_data):
-                element["data"] = next_data
+        if isinstance(data, dict):
+            current_data = element.get("data")
+            incoming_data = infographic_markdown_to_plain_text(data)
+            if isinstance(current_data, dict):
+                current_type = current_data.get("type")
+                if isinstance(current_type, str):
+                    incoming_data["type"] = current_type
+                data = {**copy.deepcopy(current_data), **incoming_data}
+            else:
+                data = incoming_data
+            infographic_type = data.get("type")
+            if isinstance(infographic_type, str):
+                element["data"] = normalize_infographic_data(
+                    infographic_type,
+                    data,
+                )
 
         colors = value.get("colors")
         if isinstance(colors, list):
@@ -4070,6 +4126,9 @@ class PresentationChatMemoryLayer:
                 for color in colors
                 if isinstance(color, str) and color.strip()
             ]
+        text_color = value.get("text_color")
+        if isinstance(text_color, str) and text_color.strip():
+            element["text_color"] = text_color
 
     @classmethod
     def _set_template_runs_text(cls, element: dict[str, Any], text: str) -> None:
@@ -4099,7 +4158,12 @@ class PresentationChatMemoryLayer:
         text: str,
         fallback_font: Any,
     ) -> list[dict[str, Any]]:
-        return replace_text_runs(existing_runs, text, fallback_font)
+        return replace_text_runs(
+            existing_runs,
+            text,
+            fallback_font,
+            parse_markdown_bold=True,
+        )
 
     @staticmethod
     def _template_asset_url(value: Any) -> str | None:

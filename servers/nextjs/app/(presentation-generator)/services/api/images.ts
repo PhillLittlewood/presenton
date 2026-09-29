@@ -51,8 +51,15 @@ export class ImagesApi {
     ) as ImageAssetResponse[];
   }
 
-  static async generateImage(prompt: string): Promise<string> {
+  static async generateImage(
+    prompt: string,
+    targetSize?: { width: number; height: number },
+  ): Promise<string> {
     const params = new URLSearchParams({ prompt });
+    if (targetSize?.width && targetSize?.height) {
+      params.set("width", String(targetSize.width));
+      params.set("height", String(targetSize.height));
+    }
     const response = await fetch(
       getApiUrl(`/api/v1/ppt/images/generate?${params.toString()}`),
       { cache: "no-cache" },

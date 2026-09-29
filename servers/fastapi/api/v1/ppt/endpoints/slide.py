@@ -15,7 +15,14 @@ from utils.asset_directory_utils import get_images_directory
 from utils.llm_calls.edit_slide import get_edited_slide_content
 from utils.llm_calls.edit_slide_html import get_edited_slide_html
 from utils.llm_calls.select_slide_type_on_edit import get_slide_layout_from_prompt
-from utils.process_slides import process_old_and_new_slides_and_fetch_assets
+from utils.process_slides import (
+    image_target_sizes_from_template,
+    process_old_and_new_slides_and_fetch_assets,
+)
+from api.v1.ppt.endpoints.presentation import (
+    _apply_template_content_to_ui,
+    _template_slide_ui,
+)
 
 
 SLIDE_ROUTER = APIRouter(prefix="/slide", tags=["Slide"])
@@ -78,6 +85,16 @@ async def edit_slide(
         ),
         allow_image_fallback=True,
         image_warnings=image_warnings,
+        old_image_target_sizes=image_target_sizes_from_template(
+            _template_slide_ui(presentation.layout, slide.layout) or slide.ui,
+            slide.content,
+            _apply_template_content_to_ui,
+        ),
+        new_image_target_sizes=image_target_sizes_from_template(
+            _template_slide_ui(presentation.layout, slide_layout.id),
+            edited_slide_content,
+            _apply_template_content_to_ui,
+        ),
     )
     for warning in image_warnings:
         LOGGER.warning(

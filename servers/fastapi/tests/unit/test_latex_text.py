@@ -59,6 +59,53 @@ def test_malformed_latex_tag_is_kept_as_plain_text():
     assert replace_text_runs(None, value) == [{"text": value}]
 
 
+def test_replace_text_runs_parses_markdown_bold():
+    runs = replace_text_runs(
+        [{"text": "Old title", "font": {"family": "Inter", "size": 42}}],
+        "A **bold** title",
+        parse_markdown_bold=True,
+    )
+
+    assert runs == [
+        {"text": "A ", "font": {"family": "Inter", "size": 42}},
+        {
+            "text": "bold",
+            "font": {"family": "Inter", "size": 42, "bold": True},
+        },
+        {"text": " title", "font": {"family": "Inter", "size": 42}},
+    ]
+
+
+def test_replace_text_runs_bolds_unclosed_leading_marker():
+    assert replace_text_runs(None, "**Live Más", parse_markdown_bold=True) == [
+        {"text": "Live Más", "font": {"bold": True}}
+    ]
+
+
+def test_replace_text_runs_keeps_unpaired_inline_marker_literal():
+    assert replace_text_runs(
+        None,
+        "Keep ** this marker",
+        parse_markdown_bold=True,
+    ) == [{"text": "Keep ** this marker"}]
+
+
+def test_replace_text_runs_combines_markdown_bold_and_latex():
+    assert replace_text_runs(
+        None,
+        r"**Area <latex>\pi r^2</latex>**",
+        parse_markdown_bold=True,
+    ) == [
+        {"text": "Area ", "font": {"bold": True}},
+        {
+            "type": "latex",
+            "latex": r"\pi r^2",
+            "display_mode": False,
+            "font": {"bold": True},
+        },
+    ]
+
+
 def test_slide_content_prompt_requests_latex_tags_in_string_fields():
     prompt = get_system_prompt()
 

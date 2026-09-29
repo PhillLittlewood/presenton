@@ -101,6 +101,7 @@ export function rawChartToEditorChart(element: RawElement): ChartElement {
     series: normalizedSeries,
     colors: chartColors,
     title_color: element.title_color ?? element.titleColor,
+    text_color: element.text_color ?? element.textColor,
     axis_color: element.axis_color ?? element.axisColor,
     grid_color: element.grid_color ?? element.gridColor,
     x_axis: element.x_axis ?? element.xAxis,
@@ -114,6 +115,9 @@ export function rawChartToEditorChart(element: RawElement): ChartElement {
     ),
     legend: element.legend ?? element.showLegend,
     legend_color: element.legend_color ?? element.legendColor,
+    legend_position: chartLegendPosition(
+      element.legend_position ?? element.legendPosition,
+    ),
   };
 }
 
@@ -198,7 +202,28 @@ export function editorChartToRawChart(source: RawElement, chart: UnknownRecord) 
       chart.legendColor ??
       source.legend_color ??
       source.legendColor,
+    text_color:
+      chart.text_color ??
+      chart.textColor ??
+      source.text_color ??
+      source.textColor,
+    legend_position: chartLegendPosition(
+      chart.legend_position ??
+      chart.legendPosition ??
+      source.legend_position ??
+      source.legendPosition,
+    ),
   };
+}
+
+function chartLegendPosition(value: unknown) {
+  const position = readString(value);
+  return position === "left" ||
+    position === "right" ||
+    position === "top" ||
+    position === "bottom"
+    ? position
+    : undefined;
 }
 
 function withoutRemovedChartFields(element: UnknownRecord) {
@@ -211,7 +236,9 @@ function withoutRemovedChartFields(element: UnknownRecord) {
   delete sanitized.chartType;
   delete sanitized.dataLabels;
   delete sanitized.gridColor;
+  delete sanitized.textColor;
   delete sanitized.showLegend;
+  delete sanitized.legendPosition;
   delete sanitized.xAxis;
   delete sanitized.xAxisGrid;
   delete sanitized.xAxisTitle;

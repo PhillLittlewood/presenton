@@ -35,7 +35,7 @@ test.after(async () => {
   }
 });
 
-test("uses browser text flow only for text containing LaTeX", () => {
+test("uses browser text flow for LaTeX and bidi text", () => {
   assert.equal(
     htmlText.shouldRenderTextElementAsHtml({
       type: "text",
@@ -50,6 +50,20 @@ test("uses browser text flow only for text containing LaTeX", () => {
         { text: "Energy: " },
         { type: "latex", latex: "E = mc^2" },
       ],
+    }),
+    true,
+  );
+  assert.equal(
+    htmlText.shouldRenderTextElementAsHtml({
+      type: "text",
+      runs: [{ text: "זיהום אוויר" }],
+    }),
+    true,
+  );
+  assert.equal(
+    htmlText.shouldRenderTextElementAsHtml({
+      type: "text",
+      text: "עברית",
     }),
     true,
   );
@@ -79,5 +93,19 @@ test("detects LaTeX in object and array list-item runs", () => {
       items: [{ runs: [{ text: "Only text" }] }],
     }),
     false,
+  );
+  assert.equal(
+    htmlText.shouldRenderTextElementAsHtml({
+      type: "text-list",
+      items: [{ runs: [{ text: "פריט ראשון" }] }],
+    }),
+    true,
+  );
+  assert.equal(
+    htmlText.shouldRenderTextElementAsHtml({
+      type: "text-list",
+      items: ["عنصر عربي"],
+    }),
+    true,
   );
 });

@@ -1,4 +1,4 @@
-import { ApiResponseHandler } from "./api-error-handler";
+import { ApiResponseError, ApiResponseHandler } from "./api-error-handler";
 import { getHeader } from "./header";
 import { getApiUrl } from "@/utils/api";
 
@@ -52,6 +52,49 @@ export interface CommunityPresentationListFilters {
   order?: CommunityPresentationSortOrder;
 }
 
+export interface CommunityErrorState {
+  message: string;
+  retryable: boolean;
+}
+
+export function getCommunityErrorState(
+  error: unknown,
+  fallbackMessage: string
+): CommunityErrorState {
+  return {
+    message:
+      error instanceof Error && error.message.trim()
+        ? error.message
+        : fallbackMessage,
+    retryable:
+      error instanceof ApiResponseError ? error.retryable : true,
+  };
+}
+
+async function fetchCommunity<T>(
+  input: string,
+  init: RequestInit,
+  fallbackMessage: string
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(input, init);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    throw new ApiResponseError(
+      "Could not reach the Presenton server while loading Community. Check your connection and try again.",
+      {
+        status: 0,
+        code: "community_backend_unreachable",
+        retryable: true,
+      }
+    );
+  }
+  return ApiResponseHandler.handleResponse(response, fallbackMessage);
+}
+
 export class CommunityPresentationApi {
   static async list(
     page = 1,
@@ -72,27 +115,21 @@ export class CommunityPresentationApi {
       }
     });
 
-    const response = await fetch(
+    return fetchCommunity<CommunityPresentationListResponse>(
       getApiUrl(`/api/v1/ppt/community/presentations?${params.toString()}`),
       {
         headers: getHeader(),
         cache: "no-cache",
         signal,
-      }
-    );
-    return ApiResponseHandler.handleResponse(
-      response,
+      },
       "Failed to load community references"
     );
   }
 
   static async getById(id: number): Promise<CommunityPresentation> {
-    const response = await fetch(
+    return fetchCommunity<CommunityPresentation>(
       getApiUrl(`/api/v1/ppt/community/presentations/${id}`),
-      { headers: getHeader(), cache: "no-cache" }
-    );
-    return ApiResponseHandler.handleResponse(
-      response,
+      { headers: getHeader(), cache: "no-cache" },
       "Failed to load the community reference"
     );
   }

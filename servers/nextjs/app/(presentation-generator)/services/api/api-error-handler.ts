@@ -5,8 +5,30 @@ import {
 } from "@/utils/chatgptAuth";
 import {
   extractApiErrorMessage,
+  extractApiErrorMetadata,
   type ApiErrorResponse,
 } from "@/utils/apiErrorMessages";
+
+export class ApiResponseError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    {
+      status,
+      code,
+      retryable,
+    }: { status: number; code?: string; retryable: boolean }
+  ) {
+    super(message);
+    this.name = "ApiResponseError";
+    this.status = status;
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
 
 // API Response Handler Utility
 export class ApiResponseHandler {
@@ -29,9 +51,10 @@ export class ApiResponseHandler {
 
     // Handle error responses
     let errorMessage = defaultErrorMessage;
+    let errorData: ApiErrorResponse | null = null;
     
     try {
-      const errorData: ApiErrorResponse = await response.json();
+      errorData = await response.json();
       errorMessage = extractApiErrorMessage(
         errorData,
         defaultErrorMessage,
@@ -57,8 +80,12 @@ export class ApiResponseHandler {
       }
     }
 
-    // Throw error with appropriate message
-    throw new Error(errorMessage);
+    const metadata = extractApiErrorMetadata(errorData, response.status);
+    throw new ApiResponseError(errorMessage, {
+      status: response.status,
+      code: metadata.code,
+      retryable: metadata.retryable,
+    });
   }
 
 

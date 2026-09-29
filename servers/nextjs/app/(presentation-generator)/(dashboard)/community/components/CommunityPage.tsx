@@ -17,9 +17,11 @@ import {
 import SmartHtmlSlide from "@/app/(presentation-generator)/components/SmartHtmlSlide";
 import {
   CommunityPresentationApi,
+  getCommunityErrorState,
   getCommunityPresentationAuthor,
   getCommunityPresentationTitle,
   type CommunityPresentation,
+  type CommunityErrorState,
   type CommunityPresentationListFilters,
 } from "@/app/(presentation-generator)/services/api/community";
 import CommunityPresentationFilters from "@/app/(presentation-generator)/upload/components/CommunityPresentationFilters";
@@ -67,7 +69,7 @@ export default function CommunityPage() {
   const [preview, setPreview] = useState<CommunityPresentation | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CommunityErrorState | null>(null);
   const [retryVersion, setRetryVersion] = useState(0);
 
   useEffect(() => {
@@ -104,9 +106,10 @@ export default function CommunityPage() {
         if (controller.signal.aborted) return;
         setPresentations([]);
         setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load community presentations"
+          getCommunityErrorState(
+            loadError,
+            "Failed to load community presentations. Please try again."
+          )
         );
         trackEvent(MixpanelEvent.Community_Presentations_Load_Failed, {
           pathname,
@@ -291,18 +294,25 @@ export default function CommunityPage() {
         {loading ? (
           <CommunityGridSkeleton />
         ) : error ? (
-          <div className="mt-5 rounded-xl border border-dashed border-[#D9D9DE] bg-[#FAFAFC] px-6 py-12 text-center">
+          <div
+            role="alert"
+            className="mt-5 rounded-xl border border-red-200 bg-red-50/40 px-6 py-12 text-center"
+          >
             <h3 className="text-sm font-semibold text-[#191919]">
               Could not load community presentations
             </h3>
-            <p className="mt-1 text-xs text-[#808080]">{error}</p>
-            <button
-              type="button"
-              onClick={() => setRetryVersion((current) => current + 1)}
-              className="mt-4 rounded-full border border-[#E0DDFC] bg-white px-4 py-2 text-xs font-medium text-[#6847F4] transition hover:bg-[#F8F7FF]"
-            >
-              Try again
-            </button>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-5 text-[#666666]">
+              {error.message}
+            </p>
+            {error.retryable && (
+              <button
+                type="button"
+                onClick={() => setRetryVersion((current) => current + 1)}
+                className="mt-4 rounded-full border border-[#E0DDFC] bg-white px-4 py-2 text-xs font-medium text-[#6847F4] transition hover:bg-[#F8F7FF]"
+              >
+                Try again
+              </button>
+            )}
           </div>
         ) : filteredPresentations.length > 0 ? (
           <div className="mt-5 grid grid-cols-1 gap-[18px] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[2200px]:grid-cols-6">

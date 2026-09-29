@@ -1,4 +1,5 @@
 from io import BytesIO
+import math
 from typing import List
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, Header
 from PIL import Image, UnidentifiedImageError
@@ -164,10 +165,22 @@ async def search_stock_images(
 
 @IMAGES_ROUTER.get("/generate")
 async def generate_image(
-    prompt: str, sql_session: AsyncSession = Depends(get_async_session)
+    prompt: str,
+    sql_session: AsyncSession = Depends(get_async_session),
+    width: float | None = None,
+    height: float | None = None,
 ):
+    if (width is None) != (height is None) or any(
+        value is not None and (not math.isfinite(value) or value <= 0)
+        for value in (width, height)
+    ):
+        raise HTTPException(
+            status_code=422, detail="width and height must both be positive"
+        )
     images_directory = get_images_directory()
-    image_prompt = ImagePrompt(prompt=prompt)
+    image_prompt = ImagePrompt(
+        prompt=prompt, target_width=width, target_height=height
+    )
     image_generation_service = ImageGenerationService(images_directory)
 
     image = await image_generation_service.generate_image(image_prompt)

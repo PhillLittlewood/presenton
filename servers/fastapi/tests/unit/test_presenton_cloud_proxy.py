@@ -119,6 +119,147 @@ def test_cloud_template_generation_supports_mutations_and_task_tracking():
     )
 
 
+def test_disabled_community_never_reaches_cloud_proxy(monkeypatch):
+    monkeypatch.setenv("PRESENTON_COMMUNITY_ENABLED", "false")
+
+    async def unexpected_settings(*_args, **_kwargs):
+        raise AssertionError("Provider settings must not be read")
+
+    monkeypatch.setattr(
+        presenton_cloud_proxy,
+        "get_provider_settings",
+        unexpected_settings,
+    )
+
+    response = asyncio.run(
+        presenton_cloud_proxy.maybe_proxy_presenton_cloud_request(
+            _request("/api/v1/ppt/community/presentations", method="GET"),
+            SimpleNamespace(),
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+    )
+
+    assert response.status_code == 404
+    assert json.loads(response.body) == {
+        "detail": {
+            "code": "community_disabled",
+            "message": "Community is disabled for this deployment.",
+            "retryable": False,
+        }
+    }
+
+
+def test_disabled_community_reference_never_reaches_cloud_generation(monkeypatch):
+    monkeypatch.setenv("PRESENTON_COMMUNITY_ENABLED", "false")
+    provider = SimpleNamespace(
+        subject=str(uuid.uuid4()),
+        access_token_encrypted="encrypted-access",
+        token_expires_at=get_current_utc_datetime() + timedelta(hours=1),
+    )
+
+    async def get_settings(_session):
+        return {"LLM": "presenton"}
+
+    async def get_provider(_session, _issuer):
+        return provider
+
+    async def unexpected_open(*_args, **_kwargs):
+        raise AssertionError("Cloud request must not be opened")
+
+    monkeypatch.setattr(presenton_cloud_proxy, "get_provider_settings", get_settings)
+    monkeypatch.setattr(presenton_cloud_proxy, "get_presenton_provider", get_provider)
+    monkeypatch.setattr(
+        presenton_cloud_proxy,
+        "open_presenton_cloud_response",
+        unexpected_open,
+    )
+
+    response = asyncio.run(
+        presenton_cloud_proxy.maybe_proxy_presenton_cloud_request(
+            _request(
+                "/api/v1/ppt/presentation/create",
+                body=json.dumps(
+                    {
+                        "generation_mode": "smart",
+                        "community_design_ids": [42],
+                    }
+                ).encode(),
+            ),
+            SimpleNamespace(),
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+    )
+
+    assert response.status_code == 422
+    assert json.loads(response.body) == {
+        "detail": {
+            "code": "community_references_disabled",
+            "message": (
+                "Community design references are disabled for this deployment."
+            ),
+            "retryable": False,
+        }
+    }
+
+
+def test_community_proxy_normalizes_upstream_error_detail(monkeypatch):
+    provider = SimpleNamespace(
+        subject=str(uuid.uuid4()),
+        access_token_encrypted="encrypted-access",
+        token_expires_at=get_current_utc_datetime() + timedelta(hours=1),
+    )
+    closed = {"client": False, "response": False}
+
+    class FakeUpstream:
+        status_code = 429
+        headers = {"content-type": "application/json"}
+
+        async def aread(self):
+            return b'{"detail":"Please wait before loading more designs."}'
+
+        async def aclose(self):
+            closed["response"] = True
+
+    class FakeClient:
+        async def aclose(self):
+            closed["client"] = True
+
+    async def get_settings(_session):
+        return {"LLM": "presenton"}
+
+    async def get_provider(_session, _issuer):
+        return provider
+
+    async def open_response(*_args, **_kwargs):
+        return FakeClient(), FakeUpstream()
+
+    monkeypatch.setattr(presenton_cloud_proxy, "get_provider_settings", get_settings)
+    monkeypatch.setattr(presenton_cloud_proxy, "get_presenton_provider", get_provider)
+    monkeypatch.setattr(
+        presenton_cloud_proxy,
+        "open_presenton_cloud_response",
+        open_response,
+    )
+
+    response = asyncio.run(
+        presenton_cloud_proxy.maybe_proxy_presenton_cloud_request(
+            _request("/api/v1/ppt/community/presentations", method="GET"),
+            SimpleNamespace(),
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+    )
+
+    assert response.status_code == 429
+    assert json.loads(response.body) == {
+        "detail": {
+            "code": "community_rate_limited",
+            "message": "Please wait before loading more designs.",
+            "retryable": True,
+        }
+    }
+    assert closed == {"client": True, "response": True}
+
+
 def test_cloud_template_task_list_is_forwarded_to_v3(monkeypatch):
     captured = {}
     provider = SimpleNamespace(

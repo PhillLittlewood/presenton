@@ -3,6 +3,7 @@ import type {
   ChartElement,
   ChartSeries,
   ChartType,
+  DataLabelPosition,
 } from "@/components/slide-editor/types";
 
 export type ResolvedChartDataset = {
@@ -33,8 +34,155 @@ export const DEFAULT_CHART_COLORS = [
   "64748B",
 ];
 
+const DATA_LABEL_POSITION_ALIASES: Partial<Record<string, DataLabelPosition>> = {
+  above: "top",
+  base: "base",
+  best_fit: "top",
+  below: "base",
+  bottom: "base",
+  center: "mid",
+  centre: "mid",
+  ctr: "mid",
+  end: "top",
+  external: "outside",
+  in_base: "base",
+  in_end: "top",
+  inside: "mid",
+  inside_base: "base",
+  inside_center: "mid",
+  inside_end: "top",
+  l: "outside",
+  left: "outside",
+  label: "top",
+  labels: "top",
+  low: "base",
+  mid: "mid",
+  middle: "mid",
+  out: "outside",
+  out_end: "outside",
+  outer: "outside",
+  outside: "outside",
+  outside_end: "outside",
+  r: "outside",
+  right: "outside",
+  start: "base",
+  t: "top",
+  top: "top",
+  value: "top",
+  values: "top",
+};
+
+const DATA_LABEL_ENABLED_VALUES = new Set([
+  "1",
+  "auto",
+  "display",
+  "displayed",
+  "enable",
+  "enabled",
+  "on",
+  "show",
+  "shown",
+  "true",
+  "visible",
+  "yes",
+  "y",
+]);
+
+const DATA_LABEL_DISABLED_VALUES = new Set([
+  "0",
+  "disable",
+  "disabled",
+  "false",
+  "hide",
+  "hidden",
+  "n",
+  "no",
+  "none",
+  "null",
+  "off",
+]);
+
 export function limitChartText(value: string) {
   return value.slice(0, CHART_TEXT_MAX_LENGTH);
+}
+
+export function readChartDataLabelPosition(
+  value: unknown,
+): DataLabelPosition | null {
+  const direct = chartDataLabelPositionFromPrimitive(value);
+  if (direct !== undefined) return direct;
+
+  if (isPlainRecord(value)) {
+    const enabled = chartDataLabelEnabledState(
+      firstDefinedValue(
+        value.enabled,
+        value.display,
+        value.visible,
+        value.show,
+        value.shown,
+      ),
+    );
+    if (enabled === false) return null;
+
+    const positionValue = firstDefinedValue(
+      value.position,
+      value.placement,
+      value.location,
+      value.align,
+      value.anchor,
+    );
+    if (positionValue !== undefined) {
+      const position = chartDataLabelPositionFromPrimitive(positionValue);
+      if (position !== undefined) return position;
+    }
+    if (enabled === true) return "top";
+  }
+
+  return null;
+}
+
+function chartDataLabelPositionFromPrimitive(
+  value: unknown,
+): DataLabelPosition | null | undefined {
+  if (value === true) return "top";
+  if (value === false || value == null) return null;
+  if (typeof value === "number") return value === 0 ? null : "top";
+
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeDataLabelToken(value);
+  if (!normalized) return null;
+  if (DATA_LABEL_DISABLED_VALUES.has(normalized)) return null;
+  if (DATA_LABEL_ENABLED_VALUES.has(normalized)) return "top";
+  return DATA_LABEL_POSITION_ALIASES[normalized];
+}
+
+function chartDataLabelEnabledState(value: unknown): boolean | null {
+  if (value === true) return true;
+  if (value === false || value == null) return value === false ? false : null;
+  if (typeof value === "number") return value === 0 ? false : true;
+  if (typeof value !== "string") return null;
+
+  const normalized = normalizeDataLabelToken(value);
+  if (DATA_LABEL_ENABLED_VALUES.has(normalized)) return true;
+  if (DATA_LABEL_DISABLED_VALUES.has(normalized)) return false;
+  return null;
+}
+
+function normalizeDataLabelToken(value: string) {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
+}
+
+function firstDefinedValue(...values: unknown[]) {
+  return values.find((value) => value !== undefined);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function markdownToPlainChartText(value: string) {
@@ -229,7 +377,7 @@ export function resolvedChartColorTargets(
       index,
       label:
         categories[index] ??
-        element.data[index]?.label ??
+        element.data?.[index]?.label ??
         `Item ${index + 1}`,
       mode,
     }));
@@ -292,7 +440,7 @@ export function updateChartColorTarget(
   const nextData =
     data.length > 0
       ? data
-      : element.data.map((datum, index) => ({
+      : (element.data ?? []).map((datum, index) => ({
           ...datum,
           color:
             mode === "category"
@@ -365,7 +513,7 @@ export function removeChartColorTarget(
   const nextData =
     data.length > 0
       ? data
-      : element.data.map((datum, index) => ({
+      : (element.data ?? []).map((datum, index) => ({
           ...datum,
           color:
             mode === "category"

@@ -402,6 +402,7 @@ export function TiptapInlineTextEditor({
     editorProps: {
       attributes: {
         class: "template-v2-tiptap-inline-prosemirror",
+        dir: "auto",
         style: editorContentStyle,
         "data-inline-edit-ignore": "true",
       },
@@ -975,6 +976,7 @@ function tiptapEditorStyle(font: Font, runs: TextRun[]) {
     "padding:0",
     "white-space:pre-wrap",
     "overflow-wrap:break-word",
+    "unicode-bidi:plaintext",
     `font-family:${cssFontFamilyStack(font.family ?? "Arial")}`,
     `font-size:${font.size ?? 18}px`,
     `color:${cssColor(font.color ?? "111827")}`,

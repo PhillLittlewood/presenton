@@ -31,6 +31,36 @@ function resolveNextJsStandaloneServer(directory: string): {
   throw new Error(`Next.js standalone server not found under: ${directory}`);
 }
 
+function resolveElectronNodeExecutable(): string {
+  if (process.platform !== "darwin") {
+    return process.execPath;
+  }
+
+  // Running the main bundle executable with ELECTRON_RUN_AS_NODE makes macOS
+  // register the Next.js server as a second foreground application, which
+  // produces a generic `exec` icon in the Dock. Electron's signed helper app
+  // supports Node mode and is marked LSUIElement, so it stays Dock-hidden.
+  const executableName = path.basename(process.execPath);
+  const helperExecutable = path.join(
+    path.dirname(process.execPath),
+    "..",
+    "Frameworks",
+    `${executableName} Helper.app`,
+    "Contents",
+    "MacOS",
+    `${executableName} Helper`,
+  );
+
+  if (fs.existsSync(helperExecutable)) {
+    return helperExecutable;
+  }
+
+  safeConsoleLog(
+    `[Presenton] Electron Node helper not found at ${helperExecutable}; falling back to the main executable.`,
+  );
+  return process.execPath;
+}
+
 /** Next.js 16+ standalone runs from servers/nextjs/; static/public must sit next to server.js. */
 function ensureNestedStandaloneAssets(bundleRoot: string, serverCwd: string): void {
   if (path.resolve(bundleRoot) === path.resolve(serverCwd)) {
@@ -236,9 +266,10 @@ export async function startNextJsServer(
   } else {
     const { serverScript, cwd } = resolveNextJsStandaloneServer(directory);
     ensureNestedStandaloneAssets(directory, cwd);
+    const nodeExecutable = resolveElectronNodeExecutable();
 
     nextjsProcess = spawn(
-      process.execPath,
+      nodeExecutable,
       [serverScript],
       {
         cwd,

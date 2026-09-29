@@ -80,12 +80,14 @@ function normalizedProvider(value: string | null | undefined) {
 export function ImagePickerModal({
   currentImage,
   initialPrompt,
+  targetSize,
   open,
   onClose,
   onSelect,
 }: {
   currentImage?: string | null;
   initialPrompt?: string | null;
+  targetSize?: { width: number; height: number } | null;
   open: boolean;
   onClose: () => void;
   onSelect: (url: string, prompt?: string) => void;
@@ -271,7 +273,7 @@ export function ImagePickerModal({
     try {
       const responses = await Promise.allSettled(
         Array.from({ length: variationCount }, () =>
-          ImagesApi.generateImage(query.trim()),
+          ImagesApi.generateImage(query.trim(), targetSize ?? undefined),
         ),
       );
       const images: PickerImage[] = responses.flatMap((response) => {

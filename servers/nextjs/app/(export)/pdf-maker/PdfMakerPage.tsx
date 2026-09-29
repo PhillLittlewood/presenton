@@ -131,6 +131,7 @@ const SmartHtmlPdfSlide = ({
         <div
           ref={containerRef}
           data-smart-slide-instance={instanceId}
+          data-tailwind-runtime-scope
           className="h-[720px] w-[1280px] overflow-hidden bg-white"
           dangerouslySetInnerHTML={{ __html: html }}
         />

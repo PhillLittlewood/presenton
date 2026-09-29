@@ -15,6 +15,10 @@ from api.v1.auth.assets import normalized_app_data_parts
 from models.sql.presenton_cloud_provider import PresentonCloudProvider
 from models.sql.user import User
 from services.database import async_session_maker
+from services.community_presentations import (
+    community_http_error,
+    community_upstream_http_error,
+)
 from services.presenton_cloud import (
     PresentonCloudError,
     get_presenton_provider,
@@ -28,10 +32,12 @@ from services.presenton_cloud_persistence import (
     persist_cloud_presentation_created,
 )
 from services.provider_settings import get_provider_settings
-from utils.get_env import get_presenton_oauth_issuer
+from utils.get_env import get_presenton_oauth_issuer, is_community_enabled
 
 
 logger = logging.getLogger(__name__)
+
+COMMUNITY_PRESENTATIONS_PATH = "/api/v1/ppt/community/presentations"
 
 CLOUD_GENERATION_PATHS = frozenset(
     {
@@ -413,6 +419,20 @@ async def maybe_proxy_presenton_cloud_request(
     ):
         return None
 
+    if path.startswith(
+        COMMUNITY_PRESENTATIONS_PATH
+    ) and not is_community_enabled():
+        error = community_http_error(
+            404,
+            code="community_disabled",
+            message="Community is disabled for this deployment.",
+            retryable=False,
+        )
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"detail": error.detail},
+        )
+
     owner_id = user.id if user is not None else None
 
     settings = await get_provider_settings(session)
@@ -444,6 +464,21 @@ async def maybe_proxy_presenton_cloud_request(
 
     request_body = await request.body()
     request_payload = _json_object(request_body)
+    if (
+        not is_community_enabled()
+        and request_payload
+        and request_payload.get("community_design_ids")
+    ):
+        error = community_http_error(
+            422,
+            code="community_references_disabled",
+            message="Community design references are disabled for this deployment.",
+            retryable=False,
+        )
+        return JSONResponse(
+            status_code=error.status_code,
+            content={"detail": error.detail},
+        )
     presentation_id, generation_mode = await _resolve_presentation_context(
         owner_id=owner_id,
         path=path,
@@ -524,6 +559,33 @@ async def maybe_proxy_presenton_cloud_request(
         )
     except PresentonCloudError as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    if (
+        path.startswith(COMMUNITY_PRESENTATIONS_PATH)
+        and upstream.status_code >= 400
+    ):
+        try:
+            response_body = await upstream.aread()
+            error = community_upstream_http_error(
+                upstream.status_code,
+                response_body,
+                not_found_message=(
+                    "The requested community presentation was not found or is "
+                    "no longer shared."
+                    if path.rstrip("/") != COMMUNITY_PRESENTATIONS_PATH
+                    else (
+                        "The Community gallery endpoint was not found. "
+                        "Check the Presenton Cloud connection."
+                    )
+                ),
+            )
+            return JSONResponse(
+                status_code=error.status_code,
+                content={"detail": error.detail},
+            )
+        finally:
+            await upstream.aclose()
+            await client.aclose()
 
     is_success = 200 <= upstream.status_code < 300
     is_chat_stream = path.endswith("/chat/message/stream")

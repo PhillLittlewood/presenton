@@ -6,9 +6,9 @@ export interface ImageSearch {
 }
 
 export interface ImageGenerate {
-  
-
   prompt: string;
+  width?: number;
+  height?: number;
 }
 export interface IconSearch {
  

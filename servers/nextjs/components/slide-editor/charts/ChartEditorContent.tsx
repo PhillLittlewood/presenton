@@ -31,6 +31,7 @@ import {
   ellipsizeChartText,
   extendChartColors,
   limitChartText,
+  readChartDataLabelPosition,
   removeChartColorTarget,
   resolvedChartColorTargets,
   resolvedChartCategories,
@@ -387,7 +388,7 @@ function ChartCustomizePanel({
           }
         />
         <DataLabelsControl
-          value={chart.data_labels ?? null}
+          value={readChartDataLabelPosition(chart.data_labels) ?? null}
           onChange={(dataLabels) =>
             onChange({ ...chart, data_labels: dataLabels })
           }

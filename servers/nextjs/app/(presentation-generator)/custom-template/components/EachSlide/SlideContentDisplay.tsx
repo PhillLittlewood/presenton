@@ -72,7 +72,7 @@ export const SlideContentDisplay: React.FC<SlideContentDisplayProps> = ({
 
         {/* Slide Content */}
         <div className="relative rounded-xl overflow-hidden border border-[#E5E7EB] bg-white shadow-sm">
-          <div ref={slideDisplayRef}>
+          <div ref={slideDisplayRef} data-tailwind-runtime-scope>
             <SlideContent
               slide={slide}
               compiledLayout={compiledLayout}
