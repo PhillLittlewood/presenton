@@ -42,6 +42,13 @@ prompt (seeded from the image's stored prompt) → Generate. Generation is an as
   the clips download as `<title>-motion-clips.zip` (`slide-NN.mp4`) beside it (browser export only).
 
 ## Limits
-Clips are only composited for images that are not rotated, have no `clip_path`, and are not
-inside a flex/grid layout (the editor computes those positions at render time). Others fall
-back to the static image and a warning is logged.
+Clips are composited for images anywhere on the slide, including inside flex/grid/list/gallery
+layouts — their position is computed with the same flow-layout rules as the real export renderer
+(`servers/fastapi/services/flow_layout.py`). An image is still skipped, falling back to the
+static image with a logged warning, if it is rotated or has a `clip_path`. One case is only
+approximate rather than exact: a flex/grid sibling of the clipped image that is text with no
+explicit width/height gets an estimated size (a character-count heuristic) rather than the
+real browser's measured text size, which can shift the clip's position by a few pixels when it
+shares a row/column with such text. Images themselves, and every other element type, always
+have an explicit size in this app's templates, so this only comes up with unusual text-heavy
+custom layouts.

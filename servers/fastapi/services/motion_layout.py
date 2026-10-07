@@ -10,19 +10,23 @@ the Next.js app):
 - `container` elements clip their children, so the visible rect is the image
   box intersected with every container ancestor.
 
-Only deterministic cases are composited. Images that sit under flex/grid
-layout parents (positions are computed by the editor's flow-layout engine at
-render time), that are rotated, or that use a `clip_path` are reported as
-skipped so the export falls back to the static image for them.
+Flex/grid/list-view/grid-view containers are positioned with
+services/flow_layout.py, a Python port of the editor's own flow-layout
+engine -- the same module the real HTML export renderer bakes pixel boxes
+from (see that module's docstring for why this is exact, not approximate,
+for the common case). Images that are rotated or use a `clip_path` are still
+reported as skipped, since export has no way to rotate or mask the overlay
+clip to match.
 """
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from services.flow_layout import FlowBox, is_flow_layout_element, layout_flow_children, read_layout_children
+
 STAGE_WIDTH = 1280.0
 STAGE_HEIGHT = 720.0
 
-_FLOW_TYPES = {"flex", "list-view", "grid", "grid-view"}
 _ROTATION_EPSILON = 0.01
 
 
@@ -256,26 +260,53 @@ def _walk(
     clips: list[Box],
     ancestor_rotated: bool,
     scan: MotionScan,
+    precomputed: Optional[list[Optional[Box]]] = None,
 ) -> None:
-    for element in elements:
+    for index, element in enumerate(elements):
         etype = element.get("type")
         has_motion = etype == "image" and bool(element.get("motion_video"))
 
-        if parent is not None and parent.get("type") in _FLOW_TYPES:
-            # Flow-layout positions are computed by the editor at render time.
-            _skip_subtree(element, "is inside a flex/grid layout", scan)
-            continue
+        if precomputed is not None:
+            # A flow (flex/grid) parent already placed this child.
+            local = precomputed[index] or _local_box(element)
+        elif parent is not None and parent.get("type") == "container":
+            local = _container_child_box(parent, element, parent_size)
+        else:
+            local = _local_box(element)
 
-        local = (
-            _container_child_box(parent, element, parent_size)
-            if parent is not None and parent.get("type") == "container"
-            else _local_box(element)
-        )
         absolute = Box(origin[0] + local.x, origin[1] + local.y, local.width, local.height)
         rotated = ancestor_rotated or _rotated(element)
 
         if has_motion:
             _maybe_add(element, absolute, clips, rotated, scan)
+
+        if is_flow_layout_element(element):
+            flow_children = read_layout_children(element)
+            if not flow_children:
+                continue
+            try:
+                flow_boxes = layout_flow_children(
+                    element, flow_children, FlowBox(0, 0, absolute.width, absolute.height)
+                )
+            except Exception as exc:  # defensive: never let one slide's export fail
+                _skip_subtree(element, f"flow layout could not be computed ({exc})", scan)
+                continue
+            # The real renderer never clips flex/grid content (overflow:visible),
+            # so -- like today -- only `container` elements narrow the clip rect.
+            _walk(
+                flow_children,
+                element,
+                (absolute.width, absolute.height),
+                (absolute.x, absolute.y),
+                clips,
+                rotated,
+                scan,
+                precomputed=[
+                    Box(b.x, b.y, b.width, b.height) if b is not None else None
+                    for b in flow_boxes
+                ],
+            )
+            continue
 
         children = _child_items(element)
         if children:

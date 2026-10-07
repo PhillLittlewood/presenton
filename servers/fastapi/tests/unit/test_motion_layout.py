@@ -49,17 +49,28 @@ def test_container_offsets_and_clips_children():
     assert (p.visible.x, p.visible.width) == (100, 200)
 
 
-def test_flow_layout_rotation_and_clip_path_fall_back_to_static():
-    flex = {"type": "flex", "position": {"x": 0, "y": 0}, "size": {"width": 500, "height": 500},
-            "children": [_img()]}
+def test_rotation_and_clip_path_fall_back_to_static():
     scan = find_motion_placements(
         {
-            "elements": [flex, _img(rotation=15), _img(clip_path="circle(50%)")],
+            "elements": [_img(rotation=15), _img(clip_path="circle(50%)")],
             "components": [],
         }
     )
     assert scan.placements == []
-    assert len(scan.skipped) == 3
+    assert len(scan.skipped) == 2
+
+
+def test_a_flex_child_now_composites_instead_of_being_skipped():
+    # Flex/grid positions used to be unconditionally skipped; they're now
+    # computed by services/flow_layout.py, matching the real renderer.
+    flex = {"type": "flex", "position": {"x": 0, "y": 0}, "size": {"width": 500, "height": 500},
+            "direction": "row", "children": [_img()]}
+    scan = find_motion_placements({"elements": [flex], "components": []})
+    assert scan.skipped == []
+    (p,) = scan.placements
+    # Explicit width (400) kept on the main axis; cross axis (height)
+    # stretches to fill the container (the default align_items: stretch).
+    assert (p.box.x, p.box.y, p.box.width, p.box.height) == (0, 0, 400, 500)
 
 
 def test_fit_mapping_matches_editor_rules():
