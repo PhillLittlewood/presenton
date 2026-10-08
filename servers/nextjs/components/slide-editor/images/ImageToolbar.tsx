@@ -874,9 +874,11 @@ export function ImageToolbar({
         imageUrl={element.data}
         imagePrompt={element.prompt}
         motionVideo={element.motion_video}
+        motionLoop={element.motion_loop}
         speakerNote={speakerNote}
         onClose={() => setMotionClipOpen(false)}
         onChange={(motionVideo) => update({ motion_video: motionVideo })}
+        onLoopChange={(loop) => update({ motion_loop: loop })}
       />
       <ImagePickerModal
         open={imagePickerOpen}

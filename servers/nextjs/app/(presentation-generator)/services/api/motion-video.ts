@@ -1,4 +1,4 @@
-import { getHeader } from "./header";
+import { getHeader, getHeaderForFormData } from "./header";
 import { ApiResponseHandler } from "./api-error-handler";
 import { getApiUrl } from "@/utils/api";
 
@@ -116,6 +116,32 @@ export class MotionVideoApi {
       if (current.message) options?.onProgress?.(current.message);
     }
     throw new Error("Motion clip generation timed out");
+  }
+
+  /**
+   * Use an already-made video file as this image's motion clip instead of
+   * generating one with ComfyUI. Works even when AI generation isn't set up.
+   */
+  static async uploadClip(
+    params: { file: File; previousMotionVideo?: string | null },
+    options?: { signal?: AbortSignal },
+  ): Promise<string> {
+    const formData = new FormData();
+    formData.append("file", params.file);
+    if (params.previousMotionVideo) {
+      formData.append("previous_motion_video", params.previousMotionVideo);
+    }
+    const response = await fetch(getApiUrl("/api/v1/ppt/motion-video/upload"), {
+      method: "POST",
+      headers: getHeaderForFormData(),
+      body: formData,
+      signal: options?.signal,
+    });
+    const result = (await ApiResponseHandler.handleResponse(
+      response,
+      "Failed to upload the video",
+    )) as { motion_video: string };
+    return result.motion_video;
   }
 
   static async deleteClip(motionVideo: string): Promise<void> {

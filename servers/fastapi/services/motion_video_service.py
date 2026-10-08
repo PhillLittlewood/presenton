@@ -442,6 +442,15 @@ class MotionVideoService:
 
     # -- audio removal -------------------------------------------------------------
 
+    async def prepare_uploaded_clip(self, raw_path: str, output_directory: str) -> str:
+        """
+        Normalize a user-supplied video file the same way a ComfyUI-generated
+        clip is normalized: re-muxed to a video-only, browser-playable MP4.
+        Raises MotionVideoGenerationError if `raw_path` isn't a readable
+        video (ffmpeg will fail to find a video stream to map).
+        """
+        return await self._strip_audio(raw_path, output_directory)
+
     async def _strip_audio(self, raw_path: str, output_directory: str) -> str:
         """
         Re-mux to a browser-playable, video-only H.264 MP4. `-an` drops every

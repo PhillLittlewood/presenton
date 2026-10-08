@@ -111,3 +111,14 @@ def test_motion_assets_are_owner_scoped_in_the_browser():
     assert not is_app_data_path_authorized(
         f"/app_data/motion/users/{other}/a.mp4", user_id=owner, is_admin=False
     )
+
+
+def test_motion_loop_flag_is_read_from_the_element():
+    scan = find_motion_placements({"elements": [_img(motion_loop=True)], "components": []})
+    assert scan.placements[0].loop is True
+
+    scan = find_motion_placements({"elements": [_img()], "components": []})
+    assert scan.placements[0].loop is False
+
+    scan = find_motion_placements({"elements": [_img(motion_loop=False)], "components": []})
+    assert scan.placements[0].loop is False

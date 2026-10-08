@@ -480,8 +480,10 @@ export type ImageElement = ElementBase & {
   clipPath?: string | null;
   color?: string | null;
   prompt?: string | null;
-  /** AI-generated motion clip URL (sidecar; `data` stays the static image). */
+  /** AI-generated or uploaded motion clip URL (sidecar; `data` stays the static image). */
   motion_video?: string | null;
+  /** Loop the clip to fill the slide instead of fading to the static image. */
+  motion_loop?: boolean | null;
   is_icon?: boolean | null;
   icon_type?: IconType | null;
 };

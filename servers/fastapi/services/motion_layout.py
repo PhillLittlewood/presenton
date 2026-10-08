@@ -78,6 +78,7 @@ class MotionPlacement:
     flip_v: bool
     radii: tuple[float, float, float, float]
     opacity: float
+    loop: bool = False
     element_name: str = ""
 
 
@@ -364,6 +365,7 @@ def _maybe_add(
             flip_v=element.get("flip_v") is True,
             radii=_radii(element, box.width, box.height),
             opacity=1.0 if opacity is None else min(max(opacity, 0.0), 1.0),
+            loop=element.get("motion_loop") is True,
             element_name=name,
         )
     )

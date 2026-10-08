@@ -1,7 +1,8 @@
-# AI motion clips for slide images (ComfyUI LTX)
+# Motion clips for slide images (ComfyUI LTX or your own video)
 
-Replace any slide image with a short image-to-video clip **in the final video export only**.
-The still image stays the visual everywhere else (editor canvas, PDF, PPTX).
+Replace any slide image with a short motion clip **in the final video export only** -- either
+generated from the image with ComfyUI LTX, or a video file you already have. The still image
+stays the visual everywhere else (editor canvas, PDF, PPTX).
 
 ## Setup
 Settings → **Motion Video** (or onboarding step 5), or env vars:
@@ -28,15 +29,26 @@ The workflow must contain a save-video node that writes an `.mp4`/`.webm` output
 produces is discarded.
 
 ## Use
-Select an image → **Film** button in the image toolbar → review/edit the suggested motion
-prompt (seeded from the image's stored prompt) → Generate. Generation is an async task
-(`image.generate_motion_clip`); a badge on the image opens the clip in a new tab.
+Select an image → **Film** button in the image toolbar. Two ways to get a clip, side by side in
+the same dialog:
+* **Generate with AI** -- review/edit the suggested motion prompt (seeded from the image's stored
+  prompt), set a length, Generate. This is an async task (`image.generate_motion_clip`); needs
+  ComfyUI set up (see Setup above).
+* **Upload** -- the button at the top of the dialog. Pick a video file (`.mp4`, `.webm`, `.mov`,
+  `.mkv`, `.m4v`, `.avi`; up to 300 MB) and it's used as-is, re-encoded video-only the same way a
+  generated clip is. Works even without ComfyUI configured (`POST
+  /api/v1/ppt/motion-video/upload`).
+
+Either way, a badge on the image opens the current clip in a new tab, and **Loop the clip** (a
+checkbox in the dialog) controls what happens when the clip is shorter than the slide's narration
+-- see Export behaviour. Toggling it saves immediately, without needing to regenerate or re-upload.
 
 ## Export behaviour
 * **Video:** the clip is composited over the rasterized slide at the image's position for the
-  narration's duration. Shorter clips fade out (0.5 s) to the static image; longer ones are
-  truncated. Slides with no narration run for the clip's length. Failures fall back to the
-  static image for that slide.
+  narration's duration. A clip shorter than that either fades out (0.5 s) to the static image
+  (default) or repeats from the start (`motion_loop: true` on the image element) until the
+  narration ends. Either way, a clip longer than the narration is truncated. Slides with no
+  narration run for the clip's length. Failures fall back to the static image for that slide.
 * **PDF:** clips are ignored.
 * **PPTX:** the bundled export runtime can't embed video, so the .pptx keeps static images and
   the clips download as `<title>-motion-clips.zip` (`slide-NN.mp4`) beside it (browser export only).

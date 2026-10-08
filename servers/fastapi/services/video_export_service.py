@@ -499,8 +499,14 @@ class VideoExportService:
 
             clip_idx, mask_idx = input_index, input_index + 1
             input_index += 2
+            clip_is_shorter = overlay.duration < total - 0.05
+            # Looping takes priority over fading to the static image for a
+            # clip shorter than the narration; -stream_loop only affects the
+            # clip input, so the mask (and everything else) is unaffected.
+            should_loop = overlay.placement.loop and clip_is_shorter
+            clip_input_args = ["-stream_loop", "-1"] if should_loop else []
             inputs += [
-                "-i", overlay.clip_path,
+                *clip_input_args, "-i", overlay.clip_path,
                 "-loop", "1", "-framerate", str(VIDEO_FPS), "-i", mask_path,
             ]
 
@@ -527,7 +533,7 @@ class VideoExportService:
             layer = f"layer{n}"
             filters.append(f"[painted{n}][mask{n}]alphamerge[{layer}]")
 
-            if overlay.duration < total - 0.05:
+            if clip_is_shorter and not should_loop:
                 fade = min(MOTION_FADE_SECONDS, overlay.duration)
                 filters.append(
                     f"[{layer}]fade=t=out:st={overlay.duration - fade:.3f}"

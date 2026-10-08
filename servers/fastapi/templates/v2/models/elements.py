@@ -258,9 +258,13 @@ class Image(BaseModel):  # Konva Image
     decorative: bool
     name: str
     prompt: Optional[str] = None
-    # Sidecar for an AI-generated motion clip (/app_data/motion/...). The static
-    # `data` image stays the visual everywhere except video export.
+    # Sidecar for an AI-generated or uploaded motion clip (/app_data/motion/...).
+    # The static `data` image stays the visual everywhere except video export.
     motion_video: Optional[str] = None
+    # When the clip is shorter than the slide's narration: loop it to fill the
+    # remaining time instead of fading back to the static image. Ignored when
+    # there is no motion_video.
+    motion_loop: Optional[bool] = None
     is_icon: bool
     icon_type: Optional[IconType] = None
 

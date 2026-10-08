@@ -189,3 +189,15 @@ def test_generation_size_follows_the_image_aspect_ratio(tmp_path):
     w, h = size_for(900, 1600)  # portrait stays portrait
     assert h > w and w % 32 == 0 and h % 32 == 0
     assert pick(str(tmp_path / "missing.png")) == (1280, 720)
+
+
+def test_prepare_uploaded_clip_strips_audio_like_a_generated_one(tmp_path):
+    clip = tmp_path / "uploaded.mp4"
+    _make_clip_with_audio(clip)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    result = asyncio.run(MOTION_VIDEO_SERVICE.prepare_uploaded_clip(str(clip), str(out_dir)))
+
+    assert _stream_types(result) == ["video"]
+    assert not clip.exists()  # the raw upload is cleaned up

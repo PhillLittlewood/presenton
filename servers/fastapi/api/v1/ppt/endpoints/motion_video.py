@@ -8,7 +8,16 @@ from datetime import datetime
 from typing import Optional
 
 import aiohttp
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Path,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 from pathvalidate import sanitize_filename
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +56,12 @@ ASYNC_TASK_TYPE_GENERATE_MOTION_CLIP = "image.generate_motion_clip"
 
 MAX_SOURCE_IMAGE_BYTES = 25 * 1024 * 1024
 
+# A pre-made clip is re-encoded to video-only (prepare_uploaded_clip), so a
+# generous cap is fine -- the stored file ends up far smaller than this.
+ALLOWED_UPLOAD_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".mkv", ".m4v", ".avi"}
+MAX_UPLOAD_VIDEO_BYTES = 300 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
 
 class MotionVideoStatus(BaseModel):
     enabled: bool
@@ -75,6 +90,10 @@ class GenerateMotionClipRequest(BaseModel):
 
 
 class DeleteMotionClipRequest(BaseModel):
+    motion_video: str
+
+
+class UploadMotionClipResponse(BaseModel):
     motion_video: str
 
 
@@ -263,6 +282,72 @@ async def generate_motion_clip_async(
         body.duration_seconds,
     )
     return async_status
+
+
+@MOTION_VIDEO_ROUTER.post("/upload", response_model=UploadMotionClipResponse)
+async def upload_motion_clip(
+    file: UploadFile = File(...),
+    previous_motion_video: Optional[str] = Form(default=None),
+):
+    """
+    Use an already-made video clip for this image instead of generating one
+    with ComfyUI. Works even when AI motion generation isn't configured --
+    only the re-encode step (ffmpeg) is required.
+    """
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in ALLOWED_UPLOAD_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported video file type '{extension or 'unknown'}'. Use one "
+                f"of: {', '.join(sorted(ALLOWED_UPLOAD_VIDEO_EXTENSIONS))}."
+            ),
+        )
+
+    owner_dir = _owner_motion_dir()
+    os.makedirs(owner_dir, exist_ok=True)
+    previous_clip_path = _resolve_owned_motion_file(previous_motion_video, owner_dir)
+
+    raw_path = os.path.join(owner_dir, f"upload-{uuid.uuid4().hex}{extension}")
+    size = 0
+    try:
+        with open(raw_path, "wb") as destination:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > MAX_UPLOAD_VIDEO_BYTES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Video files must be smaller than "
+                            f"{MAX_UPLOAD_VIDEO_BYTES // (1024 * 1024)} MB."
+                        ),
+                    )
+                destination.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    except HTTPException:
+        _delete_quietly(raw_path)
+        raise
+    except Exception as exc:
+        _delete_quietly(raw_path)
+        LOGGER.warning("[motion_video] upload could not be saved: %s", exc)
+        raise HTTPException(status_code=500, detail="Upload failed") from exc
+
+    try:
+        # Cleans up raw_path itself, on both success and failure.
+        clip_path = await MOTION_VIDEO_SERVICE.prepare_uploaded_clip(raw_path, owner_dir)
+    except MotionVideoGenerationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Could not read that file as a video: {exc}"
+        )
+
+    if previous_clip_path and os.path.realpath(previous_clip_path) != os.path.realpath(
+        clip_path
+    ):
+        _delete_quietly(previous_clip_path)
+
+    LOGGER.info("[motion_video] uploaded clip saved: %s", clip_path)
+    return UploadMotionClipResponse(motion_video=_motion_file_to_app_data_url(clip_path))
 
 
 @MOTION_VIDEO_ROUTER.post("/delete", status_code=204)
