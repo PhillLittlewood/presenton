@@ -1739,8 +1739,18 @@ async def create_presentation(
     status_code=201,
 )
 async def create_blank_presentation(
+    template_id: Annotated[Optional[str], Body(embed=True)] = None,
     sql_session: AsyncSession = Depends(get_async_session),
 ):
+    template = None
+    if template_id is not None:
+        template = await _resolve_requested_template(template_id, sql_session)
+        if template is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Template not found. Please use a valid template.",
+            )
+
     presentation_id = uuid.uuid4()
     presentation = PresentationModel(
         id=presentation_id,
@@ -1750,12 +1760,12 @@ async def create_blank_presentation(
         language="English",
         title="Untitled Presentation",
         layout=None,
-        fonts=None,
+        fonts=_extract_template_fonts_from_assets(template.assets) if template else None,
         include_title_slide=False,
     )
     slide = SlideModel(
         presentation=presentation_id,
-        layout_group=BLANK_PRESENTATION_LAYOUT_GROUP,
+        layout_group=template.id if template else BLANK_PRESENTATION_LAYOUT_GROUP,
         layout=BLANK_PRESENTATION_LAYOUT_ID,
         index=0,
         content={},
