@@ -25,6 +25,7 @@ import { RootState } from "@/store/store";
 import { notify } from "@/components/ui/sonner";
 import { sanitizeAnalyticsError } from "@/utils/analytics";
 import { IMAGE_PROVIDERS, LLM_PROVIDERS } from "@/utils/providerConstants";
+import { BlankPresentationDialog } from "./BlankPresentationDialog";
 
 const GITHUB_REPOSITORY_URL = "https://github.com/presenton/presenton";
 const DISCORD_INVITE_URL = "https://discord.com/invite/9ZsKKxudNE";
@@ -400,6 +401,8 @@ const DashboardPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingBlankPresentation, setIsCreatingBlankPresentation] =
     useState(false);
+  const [isBlankPresentationDialogOpen, setIsBlankPresentationDialogOpen] =
+    useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deckViewMode, setDeckViewMode] = useState<"grid" | "list">("grid");
   const blankPresentationRequestInFlight = useRef(false);
@@ -446,7 +449,7 @@ const DashboardPage: React.FC = () => {
     void fetchPresentations();
   }, [fetchPresentations]);
 
-  const createBlankPresentation = useCallback(async () => {
+  const createBlankPresentation = useCallback(async (templateId?: string) => {
     if (blankPresentationRequestInFlight.current) return;
 
     blankPresentationRequestInFlight.current = true;
@@ -454,15 +457,18 @@ const DashboardPage: React.FC = () => {
     trackEvent(MixpanelEvent.Dashboard_New_Presentation_Clicked, {
       pathname,
       source: "dashboard_blank_presentation_card",
+      template_id: templateId,
+      creation_type: templateId ? "with_template" : "without_template",
     });
 
     try {
       const presentation =
-        await PresentationGenerationApi.createBlankPresentation();
+        await PresentationGenerationApi.createBlankPresentation(templateId);
       trackEvent(MixpanelEvent.Dashboard_Blank_Presentation_Created, {
         pathname,
         presentation_id: presentation.id,
         slide_count: presentation.n_slides,
+        template_id: templateId,
       });
       router.push(
         `/presentation?id=${encodeURIComponent(presentation.id)}&type=standard`,
@@ -499,6 +505,17 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="relative min-h-screen w-full pb-10">
+      {isBlankPresentationDialogOpen && (
+        <BlankPresentationDialog
+          open
+          isCreating={isCreatingBlankPresentation}
+          onOpenChange={setIsBlankPresentationDialogOpen}
+          onContinueWithoutTemplate={() => void createBlankPresentation()}
+          onContinueWithTemplate={(template) =>
+            void createBlankPresentation(template.id)
+          }
+        />
+      )}
       <DashboardHeader />
       <section className="relative z-10 overflow-visible pb-0 pl-3 pr-3 pt-[17px] sm:pl-6 sm:pr-[9px]">
         <h2 className="w-full font-syne text-[16px] font-medium leading-[normal] text-[#191919]">
@@ -529,7 +546,7 @@ const DashboardPage: React.FC = () => {
           </DashboardActionCard>
 
           <DashboardActionCard
-            onClick={() => void createBlankPresentation()}
+            onClick={() => setIsBlankPresentationDialogOpen(true)}
             disabled={isCreatingBlankPresentation}
             isLoading={isCreatingBlankPresentation}
             title={
