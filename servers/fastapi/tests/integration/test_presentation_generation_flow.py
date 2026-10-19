@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from api.v1.ppt.endpoints import presentation as presentation_endpoint
 from constants.presentation import MAX_NUMBER_OF_SLIDES
@@ -581,6 +582,36 @@ def test_blank_presentation_route_is_additive():
     assert ("/presentation/create/blank", "POST") in routes
     assert ("/presentation/create", "POST") in routes
     assert ("/presentation/prepare", "POST") in routes
+
+
+@pytest.mark.parametrize(
+    "body, expected_status, expected_group",
+    [
+        (None, 201, "blank"),
+        ({}, 201, "blank"),
+        ({"template_id": "chosen-template"}, 201, "chosen-template"),
+        ({"template_id": "missing-template"}, 400, None),
+    ],
+)
+def test_blank_presentation_route_accepts_optional_template_body(
+    body, expected_status, expected_group
+):
+    template = TemplateV2(id="chosen-template", name="Chosen template")
+    session = BlankPresentationSession(get_results={template.id: template})
+    app = FastAPI()
+    app.include_router(presentation_endpoint.PRESENTATION_ROUTER)
+    app.dependency_overrides[presentation_endpoint.get_async_session] = lambda: session
+
+    with TestClient(app) as client:
+        response = client.post("/presentation/create/blank", json=body)
+
+    assert response.status_code == expected_status
+    if expected_status == 201:
+        assert response.json()["slides"][0]["layout_group"] == expected_group
+        assert session.commit_count == 1
+    else:
+        assert session.added == []
+        assert session.commit_count == 0
 
 
 def test_check_api_request_accepts_custom_prefixed_template_id():
