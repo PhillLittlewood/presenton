@@ -2401,6 +2401,132 @@ def test_save_slide_for_template_payload_persists_renderable_ui():
     assert title_element["text"] == "Thank You"
 
 
+def _save_with_patches(memory, **kwargs):
+    with patch.object(
+        memory,
+        "_get_presentation_icon_weight",
+        new=AsyncMock(return_value="regular"),
+    ), patch(
+        "services.chat.memory_layer.get_images_directory",
+        return_value="/tmp",
+    ), patch(
+        "services.chat.memory_layer.MEM0_PRESENTATION_MEMORY_SERVICE.store_slide_edit",
+        new=AsyncMock(),
+    ):
+        return _run(memory.save_slide(**kwargs))
+
+
+def test_new_slide_saved_with_speaker_note_keeps_it():
+    presentation_id = uuid.uuid4()
+    session = _FakeSaveSlideSession(_template_presentation(presentation_id))
+    memory = PresentationChatMemoryLayer(session, presentation_id)
+
+    result = _save_with_patches(
+        memory,
+        content={"hero": {"Title": "Thank You"}},
+        layout_id="thanks",
+        index=0,
+        replace_old_slide_at_index=False,
+        speaker_note="  Close by thanking the audience.  ",
+    )
+
+    assert result["saved"] is True
+    assert result["has_speaker_note"] is True
+    assert "speaker_note_missing" not in result
+    saved_slide = session.slides[0]
+    assert saved_slide.speaker_note == "Close by thanking the audience."
+    assert saved_slide.content["__speaker_note__"] == "Close by thanking the audience."
+
+
+def test_new_slide_saved_without_note_is_flagged_as_missing_one():
+    presentation_id = uuid.uuid4()
+    session = _FakeSaveSlideSession(_template_presentation(presentation_id))
+    memory = PresentationChatMemoryLayer(session, presentation_id)
+
+    result = _save_with_patches(
+        memory,
+        content={"hero": {"Title": "Thank You"}},
+        layout_id="thanks",
+        index=0,
+        replace_old_slide_at_index=False,
+    )
+
+    assert result["saved"] is True
+    assert result["speaker_note_missing"] is True
+    assert "setSpeakerNote" in result["next_step"]
+    assert "index 0" in result["next_step"]
+
+
+def _blank_slide(presentation_id) -> SlideModel:
+    return SlideModel(
+        presentation=presentation_id,
+        layout_group="custom-template",
+        layout="__blank_slide__",
+        index=0,
+        content={},
+        speaker_note="",
+    )
+
+
+def test_filling_a_blank_slide_counts_as_a_new_slide():
+    presentation_id = uuid.uuid4()
+    session = _FakeSaveSlideSession(_template_presentation(presentation_id))
+    session.slides.append(_blank_slide(presentation_id))
+    memory = PresentationChatMemoryLayer(session, presentation_id)
+
+    without_note = _save_with_patches(
+        memory,
+        content={"hero": {"Title": "Thank You"}},
+        layout_id="thanks",
+        index=0,
+        replace_old_slide_at_index=True,
+    )
+    assert without_note["saved"] is True
+    assert without_note["speaker_note_missing"] is True
+
+    session.slides[0].layout = "__blank_slide__"
+    session.slides[0].content = {}
+    with_note = _save_with_patches(
+        memory,
+        content={"hero": {"Title": "Thank You"}},
+        layout_id="thanks",
+        index=0,
+        replace_old_slide_at_index=True,
+        speaker_note="Thank everyone for coming.",
+    )
+    assert with_note["has_speaker_note"] is True
+    assert "speaker_note_missing" not in with_note
+    assert session.slides[0].speaker_note == "Thank everyone for coming."
+
+
+def test_editing_an_existing_slide_keeps_its_note_and_is_not_flagged():
+    presentation_id = uuid.uuid4()
+    session = _FakeSaveSlideSession(_template_presentation(presentation_id))
+    existing = SlideModel(
+        presentation=presentation_id,
+        layout_group="custom-template",
+        layout="thanks",
+        index=0,
+        content={"hero": {"Title": "Old"}},
+        speaker_note="Original note.",
+    )
+    session.slides.append(existing)
+    memory = PresentationChatMemoryLayer(session, presentation_id)
+
+    result = _save_with_patches(
+        memory,
+        content={"hero": {"Title": "New title"}},
+        layout_id="thanks",
+        index=0,
+        replace_old_slide_at_index=True,
+    )
+
+    assert result["saved"] is True
+    assert result["has_speaker_note"] is True
+    assert "speaker_note_missing" not in result
+    assert session.slides[0].speaker_note == "Original note."
+
+
 def test_chat_add_outline_refuses_more_than_max_slides():
     presentation_id = uuid.uuid4()
     presentation = _template_presentation(presentation_id)

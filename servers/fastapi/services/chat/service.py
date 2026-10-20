@@ -54,6 +54,19 @@ DOCUMENT_CONTENT_INTENT_PATTERN = re.compile(
     r"(?:document|pdf|file|attachment)\b",
     re.IGNORECASE,
 )
+# A final reply that says the deck was changed, in a turn where no tool ran.
+UNBACKED_EDIT_CLAIM_PATTERN = re.compile(
+    r"\bI(?:'ve|\s+have)?\s+(?:just\s+|successfully\s+)?"
+    r"(?:added|created|updated|saved|written|wrote|generated|replaced|changed|"
+    r"applied|inserted|edited|modified|set|filled)\b",
+    re.IGNORECASE,
+)
+UNBACKED_EDIT_NUDGE = (
+    "No tool was called in this turn, so nothing in the presentation has "
+    "changed. Do not claim a change you did not make. Call the appropriate "
+    "tool now (for example setSpeakerNote for speaker notes) and only report "
+    "success after it returns saved=true. If you cannot do it, say so plainly."
+)
 DIRECT_FILE_PLACEMENT_PATTERN = re.compile(
     r"\b(place|put|insert|attach|display|show|move|resize|position|replace|add)\b",
     re.IGNORECASE,
@@ -130,6 +143,8 @@ class PresentationChatService:
         called_tools: list[str] = []
         last_tool_results: list[dict[str, Any]] = []
         response_text: str | None = None
+        unbacked_claim_retried = False
+        missing_note_nudged = False
 
         for round_index in range(MAX_TOOL_ROUNDS):
             completion_chunk: Any | None = None
@@ -236,6 +251,48 @@ class PresentationChatService:
                 response_text = extract_text(getattr(completion_chunk, "content", None))
             if not response_text:
                 response_text = "I could not generate a response for that request."
+
+            missing_note_nudge = (
+                None if missing_note_nudged else self._missing_note_nudge()
+            )
+            if missing_note_nudge:
+                # A slide was generated without notes: ask for them once
+                # before finishing.
+                missing_note_nudged = True
+                yield "trace", {
+                    "kind": "model_note",
+                    "round": round_index + 1,
+                    "status": "info",
+                    "message": "Adding speaker notes to the new slide.",
+                }
+                messages = [
+                    *messages,
+                    AssistantMessage(content=[response_text]),
+                    UserMessage(content=[TextContentPart(text=missing_note_nudge)]),
+                ]
+                continue
+
+            if (
+                not called_tools
+                and not unbacked_claim_retried
+                and self._claims_unperformed_edit(response_text)
+            ):
+                # The model said it changed the deck without calling a tool.
+                # Push back once instead of reporting a change that never
+                # happened.
+                unbacked_claim_retried = True
+                yield "trace", {
+                    "kind": "model_note",
+                    "round": round_index + 1,
+                    "status": "info",
+                    "message": "No change was saved yet. Retrying with the editing tools.",
+                }
+                messages = [
+                    *messages,
+                    AssistantMessage(content=[response_text]),
+                    UserMessage(content=[TextContentPart(text=UNBACKED_EDIT_NUDGE)]),
+                ]
+                continue
 
             if not round_content_chunks:
                 yield "chunk", response_text
@@ -380,6 +437,8 @@ class PresentationChatService:
 
         called_tools: list[str] = []
         last_tool_results: list[dict[str, Any]] = []
+        unbacked_claim_retried = False
+        missing_note_nudged = False
 
         for _ in range(MAX_TOOL_ROUNDS):
             try:
@@ -398,6 +457,33 @@ class PresentationChatService:
                 response_text = extract_text(response.content) or (
                     "I could not generate a response for that request."
                 )
+                missing_note_nudge = (
+                    None if missing_note_nudged else self._missing_note_nudge()
+                )
+                if missing_note_nudge:
+                    missing_note_nudged = True
+                    messages = [
+                        *messages,
+                        AssistantMessage(content=[response_text]),
+                        UserMessage(
+                            content=[TextContentPart(text=missing_note_nudge)]
+                        ),
+                    ]
+                    continue
+                if (
+                    not called_tools
+                    and not unbacked_claim_retried
+                    and self._claims_unperformed_edit(response_text)
+                ):
+                    unbacked_claim_retried = True
+                    messages = [
+                        *messages,
+                        AssistantMessage(content=[response_text]),
+                        UserMessage(
+                            content=[TextContentPart(text=UNBACKED_EDIT_NUDGE)]
+                        ),
+                    ]
+                    continue
                 return response_text, called_tools
 
             called_tools.extend([tool_call.name for tool_call in response.tool_calls])
@@ -480,13 +566,65 @@ class PresentationChatService:
         tool_calls: list[AssistantToolCall],
     ) -> list[Message]:
         response_text = extract_text(content)
+        # The model's tool-call arguments are sent back to the provider on the
+        # next round. Providers that parse them (vLLM and other OpenAI-compatible
+        # servers do) reject the whole request if the model produced malformed
+        # JSON, which surfaces as e.g. "Expecting value: line 1 column 281".
+        # The raw arguments were already executed (and any error reported back
+        # to the model), so only the echoed copy is replaced with valid JSON.
+        sanitized_calls = [
+            tool_call.model_copy(
+                update={
+                    "arguments": PresentationChatService._sanitize_tool_call_arguments(
+                        tool_call.arguments
+                    )
+                }
+            )
+            for tool_call in tool_calls
+        ]
         return [
             *messages,
             AssistantMessage(
                 content=[response_text] if response_text else None,
-                tool_calls=list(tool_calls),
+                tool_calls=sanitized_calls,
             ),
         ]
+
+    @staticmethod
+    def _sanitize_tool_call_arguments(arguments: str | None) -> str:
+        """Return `arguments` as strictly valid JSON object text."""
+        if not arguments or not arguments.strip():
+            return "{}"
+        try:
+            if isinstance(json.loads(arguments), dict):
+                return arguments
+        except Exception:
+            pass
+        try:
+            repaired = ChatTools._parse_args(arguments)
+            return json.dumps(repaired, ensure_ascii=False)
+        except Exception:
+            return "{}"
+
+    def _missing_note_nudge(self) -> str | None:
+        """Nudge text when slides generated this turn still have no note."""
+        pending = self._tools.slides_missing_speaker_notes()
+        if not isinstance(pending, list) or not pending:
+            return None
+        numbers = ", ".join(str(index + 1) for index in pending)
+        indexes = ", ".join(str(index) for index in pending)
+        return (
+            f"Slide {numbers} was generated without a speaker note. Call "
+            f"setSpeakerNote now for it (zero-based index {indexes}) with a "
+            "plain-text note written from the slide's content, then give your "
+            "final reply."
+        )
+
+    @staticmethod
+    def _claims_unperformed_edit(response_text: str | None) -> bool:
+        return bool(
+            response_text and UNBACKED_EDIT_CLAIM_PATTERN.search(response_text)
+        )
 
     @staticmethod
     def _strip_ui_context_prefix(user_message: str) -> str:
@@ -640,6 +778,7 @@ class PresentationChatService:
             "addNewSlideLayout",
             "saveSlide",
             "updateSlide",
+            "setSpeakerNote",
             "deleteSlide",
             "addElement",
             "updateElement",
@@ -699,6 +838,7 @@ class PresentationChatService:
             "addNewSlideLayout",
             "saveSlide",
             "updateSlide",
+            "setSpeakerNote",
             "deleteSlide",
             "addElement",
             "updateElement",
@@ -799,6 +939,7 @@ class PresentationChatService:
             "generateAssets": "Generating slide assets",
             "saveSlide": "Saving the slide",
             "updateSlide": "Updating the slide",
+            "setSpeakerNote": "Saving speaker notes",
             "deleteSlide": "Deleting the slide",
             "addElement": "Adding slide element",
             "updateElement": "Updating slide element",

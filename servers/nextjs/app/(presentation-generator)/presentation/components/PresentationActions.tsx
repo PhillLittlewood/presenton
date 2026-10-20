@@ -94,6 +94,7 @@ import Chat from "./Chat";
 import TemplateService from "../../services/api/template";
 import { TemplateV2HtmlSlidePreview } from "../../components/TemplateV2HtmlSlidePreview";
 import { isTemplateFreePresentation } from "../../_shared/blank-slide";
+import { PRESENTON_BLANK_SLIDE_PROMPT_EVENT } from "../../_shared/blank-slide-prompt-event";
 import {
   resolvePresentationTheme,
   type TemplateTheme,
@@ -1430,6 +1431,27 @@ const PresentationActions = (props: PresentationActionsProps) => {
     presentationActionsUiReducer,
     initialPresentationActionsUiState,
   );
+
+  // The "new slide" dialog sends its prompt to the AI chat, which only exists
+  // while the AI panel is open. Open it (on the AI tab) so the prompt is
+  // actually delivered and its progress is visible.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const openAiPanelForSlidePrompt = () => {
+      dispatchUiState({ type: "selectAction", activeAction: "ai" });
+      onPanelOpenChange(true);
+    };
+    window.addEventListener(
+      PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
+      openAiPanelForSlidePrompt,
+    );
+    return () => {
+      window.removeEventListener(
+        PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
+        openAiPanelForSlidePrompt,
+      );
+    };
+  }, [onPanelOpenChange]);
   const [templateV2SelectionContext, setTemplateV2SelectionContext] = useState<{
     slideIndex: number | null;
     target: TemplateV2SurfaceSelectedDetail["selection"];

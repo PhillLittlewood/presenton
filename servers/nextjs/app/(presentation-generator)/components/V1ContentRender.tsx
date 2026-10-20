@@ -14,10 +14,7 @@ import {
     isBlankPresentationSlide,
     isTemplateV2Slide as isTemplateV2PresentationSlide,
 } from "../_shared/blank-slide";
-import {
-    PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
-    type BlankSlidePromptEventDetail,
-} from "../_shared/blank-slide-prompt-event";
+import { dispatchBlankSlidePrompt } from "../_shared/blank-slide-prompt-event";
 
 const TEMPLATE_V2_PREVIEW_SCALE = 0.085;
 
@@ -59,21 +56,13 @@ function TemplateV2PromptOverlay({
         const trimmedPrompt = prompt.trim();
         if (!trimmedPrompt || typeof window === "undefined") return;
 
-        window.dispatchEvent(
-            new CustomEvent<BlankSlidePromptEventDetail>(
-                PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
-                {
-                    detail: {
-                        prompt: trimmedPrompt,
-                        slideIndex,
-                        layoutId:
-                            typeof layout.id === "string" ? layout.id : null,
-                        promptKind: showLayoutPreview ? "layout" : "blank",
-                        layout: showLayoutPreview ? layout : null,
-                    },
-                },
-            ),
-        );
+        dispatchBlankSlidePrompt({
+            prompt: trimmedPrompt,
+            slideIndex,
+            layoutId: typeof layout.id === "string" ? layout.id : null,
+            promptKind: showLayoutPreview ? "layout" : "blank",
+            layout: showLayoutPreview ? layout : null,
+        });
         setPrompt("");
         dismissPrompt();
     };

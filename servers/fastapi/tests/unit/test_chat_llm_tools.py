@@ -99,6 +99,7 @@ def test_chat_tools_expose_only_v2_tool_names():
         "getSlideAtIndex",
         "saveSlide",
         "updateSlide",
+        "setSpeakerNote",
         "deleteSlide",
         "addElement",
         "addInfographic",

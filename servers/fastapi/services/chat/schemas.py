@@ -231,7 +231,7 @@ class AddNewSlideInput(OpenAIStrictSchemaModel):
     )
 
 
-class SaveSlideInput(StrictSchemaModel):
+class SaveSlideInput(OpenAIStrictSchemaModel):
     content: str = Field(
         min_length=2,
         max_length=200000,
@@ -243,6 +243,16 @@ class SaveSlideInput(StrictSchemaModel):
     layout_id: str = Field(alias="layoutId", min_length=1, max_length=200)
     index: int = Field(ge=0, le=1000)
     replace_old_slide_at_index: bool = Field(alias="replaceOldSlideAtIndex")
+    speaker_note: str | None = Field(
+        ...,
+        alias="speakerNote",
+        max_length=10000,
+        description=(
+            "Plain-text speaker note for this slide, written from the final "
+            "slide content. Always include it when creating or filling a new "
+            "slide; use null only when editing an existing slide."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
@@ -272,6 +282,11 @@ class SaveSmartSlideInput(StrictSchemaModel):
         default=None,
         alias="speakerNote",
         max_length=10000,
+        description=(
+            "Optional plain-text speaker note for this slide. Omit it to keep "
+            "the slide's existing note. To change only the note, use "
+            "setSpeakerNote instead of resending the slide HTML."
+        ),
     )
     edit_prompt: str | None = Field(
         default=None,
@@ -282,7 +297,7 @@ class SaveSmartSlideInput(StrictSchemaModel):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
-class AddNewSlideLayoutInput(StrictSchemaModel):
+class AddNewSlideLayoutInput(OpenAIStrictSchemaModel):
     content: str = Field(
         min_length=2,
         max_length=200000,
@@ -290,6 +305,16 @@ class AddNewSlideLayoutInput(StrictSchemaModel):
     )
     layout_id: str = Field(alias="layoutId", min_length=1, max_length=200)
     index: int = Field(ge=0, le=1000)
+    speaker_note: str | None = Field(
+        ...,
+        alias="speakerNote",
+        max_length=10000,
+        description=(
+            "Plain-text speaker note for this slide, written from the final "
+            "slide content. Always include it when creating or filling a new "
+            "slide; use null only when editing an existing slide."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
@@ -313,6 +338,33 @@ class UpdateSlideInput(AddNewSlideLayoutInput):
 
 class DeleteSlideInput(StrictSchemaModel):
     index: int = Field(ge=0, le=1000)
+
+
+class SetSpeakerNoteInput(StrictSchemaModel):
+    index: int = Field(
+        ge=0,
+        le=1000,
+        description="Zero-based slide index. If the user says slide N, use N-1.",
+    )
+    speaker_note: str = Field(
+        alias="speakerNote",
+        min_length=1,
+        max_length=10000,
+        description=(
+            "The complete speaker note for this slide as plain text (no "
+            "markdown). It replaces the slide's existing note."
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
+
+    @field_validator("speaker_note")
+    @classmethod
+    def validate_speaker_note(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("'speakerNote' must not be blank.")
+        return stripped
 
 
 class GetSlideElementsInput(OpenAIStrictSchemaModel):

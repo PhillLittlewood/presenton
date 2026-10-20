@@ -13,6 +13,7 @@ const TOOL_LABELS: Record<string, string> = {
   searchSlide: "Slide search",
   getSlideAtIndex: "Slide reader",
   saveSlide: "Slide saver",
+  setSpeakerNote: "Speaker notes",
   updateSlide: "Slide updater",
   deleteSlide: "Slide remover",
   addElement: "Element adder",
@@ -35,6 +36,7 @@ export const MUTATING_TOOLS = new Set([
   "addNewSlideLayout",
   "saveSlide",
   "updateSlide",
+  "setSpeakerNote",
   "deleteSlide",
   "addElement",
   "updateElement",
@@ -52,6 +54,7 @@ export const SLIDE_FOCUS_TOOLS = new Set([
   "addNewSlideLayout",
   "saveSlide",
   "updateSlide",
+  "setSpeakerNote",
   "deleteSlide",
   "addElement",
   "updateElement",
@@ -182,6 +185,8 @@ const humanActivityForTool = (
     case "updateSlide":
     case "saveSlide":
       return isDone ? "Applied the change." : "Applying the change.";
+    case "setSpeakerNote":
+      return isDone ? "Saved the speaker notes." : "Saving the speaker notes.";
     case "deleteComponent":
     case "deleteElement":
     case "deleteSlide":

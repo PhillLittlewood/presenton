@@ -981,6 +981,7 @@ class PresentationChatMemoryLayer:
         layout_id: str,
         index: int,
         replace_old_slide_at_index: bool,
+        speaker_note: str | None = None,
     ) -> dict[str, Any]:
         presentation = await self._sql_session.get(PresentationModel, self._presentation_id)
         if not presentation:
@@ -1068,6 +1069,21 @@ class PresentationChatMemoryLayer:
                     warning.get("detail"),
                 )
 
+            # A replacement payload that carries no speaker note must not wipe
+            # the note the slide already has.
+            # Filling a blank placeholder counts as generating a new slide.
+            was_blank_slide = (
+                existing_slide.layout == BLANK_SLIDE_LAYOUT_ID
+                or not existing_slide.content
+            )
+            if speaker_note and speaker_note.strip():
+                updated_content["__speaker_note__"] = speaker_note.strip()
+            resolved_speaker_note = self._resolve_speaker_note(
+                updated_content, existing_slide.speaker_note
+            )
+            if resolved_speaker_note:
+                updated_content["__speaker_note__"] = resolved_speaker_note
+
             existing_slide.id = uuid.uuid4()
             existing_slide.layout = layout_id
             existing_slide.layout_group = layout_group
@@ -1077,7 +1093,7 @@ class PresentationChatMemoryLayer:
                 layout_id=layout_id,
                 content=updated_content,
             )
-            existing_slide.speaker_note = self._extract_speaker_note(updated_content)
+            existing_slide.speaker_note = resolved_speaker_note
             self._sql_session.add(existing_slide)
             self._sql_session.add_all(new_assets)
             await self._sql_session.commit()
@@ -1095,6 +1111,11 @@ class PresentationChatMemoryLayer:
                 "message": f"Slide at index {target_index} was replaced successfully.",
                 "slide_id": str(existing_slide.id),
                 "index": target_index,
+                **self._speaker_note_status(
+                    note=resolved_speaker_note,
+                    is_new_slide=was_blank_slide,
+                    index=target_index,
+                ),
             }
 
         slides_result = await self._sql_session.scalars(
@@ -1125,6 +1146,8 @@ class PresentationChatMemoryLayer:
             self._sql_session.add(slide)
 
         new_slide_content = copy.deepcopy(content)
+        if speaker_note and speaker_note.strip():
+            new_slide_content["__speaker_note__"] = speaker_note.strip()
         new_slide = SlideModel(
             presentation=self._presentation_id,
             layout_group=layout_group,
@@ -1180,6 +1203,11 @@ class PresentationChatMemoryLayer:
             "slide_id": str(new_slide.id),
             "index": insert_index,
             "shifted_slide_count": len(slides_to_shift),
+            **self._speaker_note_status(
+                note=new_slide.speaker_note or "",
+                is_new_slide=True,
+                index=insert_index,
+            ),
         }
 
     async def get_smart_presentation_context(
@@ -1291,6 +1319,7 @@ class PresentationChatMemoryLayer:
                     "message": f"No Smart slide found at index {target_index}.",
                     "validation_errors": [],
                 }
+            was_blank_slide = not (slide.html_content or "").strip()
             slide.layout_group = "smart-html"
             slide.layout = "smart-html"
             slide.content = {"title": title}
@@ -1307,6 +1336,11 @@ class PresentationChatMemoryLayer:
                 "slide_id": str(slide.id),
                 "index": target_index,
                 "slide_number": target_index + 1,
+                **self._speaker_note_status(
+                    note=slide.speaker_note or "",
+                    is_new_slide=was_blank_slide,
+                    index=target_index,
+                ),
             }
 
         slides_result = await self._sql_session.scalars(
@@ -1356,6 +1390,72 @@ class PresentationChatMemoryLayer:
             "slide_id": str(new_slide.id),
             "index": insert_index,
             "slide_number": insert_index + 1,
+            **self._speaker_note_status(
+                note=new_slide.speaker_note or "",
+                is_new_slide=True,
+                index=insert_index,
+            ),
+        }
+
+    async def set_speaker_note(
+        self,
+        *,
+        index: int,
+        speaker_note: str,
+    ) -> dict[str, Any]:
+        """Write only the speaker note of the slide at `index`.
+
+        Leaves the slide's visible content, layout and id untouched, and
+        reports saved=False unless the note was actually stored.
+        """
+        target_index = max(0, index)
+        note = (speaker_note or "").strip()
+        if not note:
+            return {
+                "saved": False,
+                "message": "The speaker note was empty, so nothing was saved.",
+                "index": target_index,
+            }
+
+        slide = await self._sql_session.scalar(
+            select(SlideModel).where(
+                SlideModel.presentation == self._presentation_id,
+                SlideModel.index == target_index,
+            )
+        )
+        if not slide:
+            return {
+                "saved": False,
+                "message": f"No slide found at index {target_index}.",
+                "index": target_index,
+            }
+
+        slide.speaker_note = note
+        if self.presentation_type != "smart" and isinstance(slide.content, dict):
+            # Keep the copy inside content in sync (reassign so the JSON column
+            # is flagged as changed).
+            updated_content = copy.deepcopy(slide.content)
+            updated_content["__speaker_note__"] = note
+            slide.content = updated_content
+        self._sql_session.add(slide)
+        await self._sql_session.commit()
+        await self._sql_session.refresh(slide)
+
+        if (slide.speaker_note or "") != note:
+            return {
+                "saved": False,
+                "message": "The speaker note could not be stored on the slide.",
+                "index": target_index,
+            }
+
+        return {
+            "saved": True,
+            "action": "speaker_note_set",
+            "message": f"Speaker note saved for slide {target_index + 1}.",
+            "slide_id": str(slide.id),
+            "index": target_index,
+            "slide_number": target_index + 1,
+            "speaker_note_length": len(note),
         }
 
     async def delete_slide(self, *, index: int) -> dict[str, Any]:
@@ -4332,6 +4432,37 @@ class PresentationChatMemoryLayer:
         if isinstance(value, str):
             return value
         return ""
+
+    @staticmethod
+    def _speaker_note_status(
+        *,
+        note: str,
+        is_new_slide: bool,
+        index: int,
+    ) -> dict[str, Any]:
+        """Tell the caller whether a freshly generated slide still lacks a note."""
+        has_note = bool(note.strip())
+        status: dict[str, Any] = {"has_speaker_note": has_note}
+        if is_new_slide and not has_note:
+            status["speaker_note_missing"] = True
+            status["next_step"] = (
+                "This new slide has no speaker note yet. Call setSpeakerNote "
+                f"with index {index} and a plain-text note based on the slide's "
+                "content before giving your final reply."
+            )
+        return status
+
+    @staticmethod
+    def _resolve_speaker_note(
+        content: dict[str, Any],
+        existing_note: str | None,
+    ) -> str:
+        """Use the note in `content` when it has a non-empty one, else keep the
+        slide's existing note."""
+        value = content.get("__speaker_note__")
+        if isinstance(value, str) and value.strip():
+            return value
+        return existing_note or ""
 
     @staticmethod
     def _resolve_layout_group(

@@ -4,10 +4,7 @@ import { useId, useState, type FormEvent } from "react";
 import { ArrowUp, Loader2, PenLine } from "lucide-react";
 import type { TemplateV2Layout } from "@/components/slide-editor/importing/template-v2-import";
 import { TemplateV2HtmlSlidePreview } from "../components/TemplateV2HtmlSlidePreview";
-import {
-  PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
-  type BlankSlidePromptEventDetail,
-} from "./blank-slide-prompt-event";
+import { dispatchBlankSlidePrompt } from "./blank-slide-prompt-event";
 
 const TEMPLATE_V2_PREVIEW_SCALE = 0.085;
 
@@ -78,20 +75,13 @@ export function TemplateV2PromptOverlay({
     }
 
     if (typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent<BlankSlidePromptEventDetail>(
-        PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
-        {
-          detail: {
-            prompt: trimmedPrompt,
-            slideIndex,
-            layoutId: typeof layout.id === "string" ? layout.id : null,
-            promptKind: showLayoutPreview ? "layout" : "blank",
-            layout: showLayoutPreview ? layout : null,
-          },
-        },
-      ),
-    );
+    dispatchBlankSlidePrompt({
+      prompt: trimmedPrompt,
+      slideIndex,
+      layoutId: typeof layout.id === "string" ? layout.id : null,
+      promptKind: showLayoutPreview ? "layout" : "blank",
+      layout: showLayoutPreview ? layout : null,
+    });
     setPrompt("");
     setIsPromptVisible(false);
     onDismiss?.();

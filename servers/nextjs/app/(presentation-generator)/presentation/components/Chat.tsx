@@ -35,6 +35,8 @@ import { ImagesApi } from "../../services/api/images";
 import { PresentationGenerationApi } from "../../services/api/presentation-generation";
 import {
   PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
+  markBlankSlidePromptHandled,
+  takePendingBlankSlidePrompts,
   type BlankSlidePromptEventDetail,
 } from "../../_shared/blank-slide-prompt-event";
 import type {
@@ -974,7 +976,7 @@ const Chat = ({
     }
     if (variant === "template-v2") {
       contextLines.push(
-        "UI context: the user is editing a rendered TemplateV2 presentation with the v2 assistant. Use getTemplateSummary, getAvailableLayouts, getAvailableBlocks, searchSlide, getSlideAtIndex, getContentSchemaFromLayoutId, addNewSlide, addNewSlideLayout, saveSlide, updateSlide, deleteSlide, addElement, updateElement, deleteElement, addComponent, createComponent, updateComponent, deleteComponent, getPresentationTheme, setPresentationTheme, readSourceDocuments, and generateAssets. For visible edits inside an existing slide, inspect with getSlideAtIndex and use the returned componentId/elementPath exactly. Use updateElement for element toolbar-style properties and updateComponent for component move, resize, duplicate, layer order, group, and ungroup actions. When adding or creating rendered elements/components, prefer reusable template blocks over primitives: for custom new slides, search getAvailableBlocks for a title/header text block first, then requested chart/table/content blocks, adapt their component JSON, and include the final requested content instead of placeholder blocks. Keep new rendered elements/components strictly inside the 1280x720 visible slide window."
+        "UI context: the user is editing a rendered TemplateV2 presentation with the v2 assistant. Use getTemplateSummary, getAvailableLayouts, getAvailableBlocks, searchSlide, getSlideAtIndex, getContentSchemaFromLayoutId, addNewSlide, addNewSlideLayout, saveSlide, updateSlide, setSpeakerNote, deleteSlide, addElement, updateElement, deleteElement, addComponent, createComponent, updateComponent, deleteComponent, getPresentationTheme, setPresentationTheme, readSourceDocuments, and generateAssets. Every new or newly filled slide needs speaker notes: pass speakerNote in addNewSlideLayout, saveSlide or updateSlide, or call setSpeakerNote right after. To add or change only notes, call setSpeakerNote with the slide index and a plain-text note, and only say they were added after it returns saved=true. For visible edits inside an existing slide, inspect with getSlideAtIndex and use the returned componentId/elementPath exactly. Use updateElement for element toolbar-style properties and updateComponent for component move, resize, duplicate, layer order, group, and ungroup actions. When adding or creating rendered elements/components, prefer reusable template blocks over primitives: for custom new slides, search getAvailableBlocks for a title/header text block first, then requested chart/table/content blocks, adapt their component JSON, and include the final requested content instead of placeholder blocks. Keep new rendered elements/components strictly inside the 1280x720 visible slide window."
       );
     }
     if (presentationType === "smart" && variant === "presentation") {
@@ -1987,9 +1989,11 @@ const Chat = ({
   useEffect(() => {
     if (variant !== "template-v2" || typeof window === "undefined") return;
 
-    const handleBlankSlidePrompt = (event: Event) => {
-      const detail = (event as CustomEvent<BlankSlidePromptEventDetail>).detail;
-      const prompt = typeof detail?.prompt === "string" ? detail.prompt.trim() : "";
+    const runBlankSlidePrompt = (detail: BlankSlidePromptEventDetail) => {
+      // Delivered exactly once, whether it arrives as an event or from the
+      // queue of prompts submitted before this chat was mounted.
+      if (!detail || !markBlankSlidePromptHandled(detail)) return;
+      const prompt = typeof detail.prompt === "string" ? detail.prompt.trim() : "";
       if (!prompt) return;
 
       const target =
@@ -2020,10 +2024,21 @@ const Chat = ({
       });
     };
 
+    const handleBlankSlidePrompt = (event: Event) => {
+      runBlankSlidePrompt(
+        (event as CustomEvent<BlankSlidePromptEventDetail>).detail,
+      );
+    };
+
     window.addEventListener(
       PRESENTON_BLANK_SLIDE_PROMPT_EVENT,
       handleBlankSlidePrompt,
     );
+    // The side panel (and this chat) may have been closed when the prompt was
+    // submitted; pick up anything that was queued meanwhile.
+    for (const pendingDetail of takePendingBlankSlidePrompts()) {
+      runBlankSlidePrompt(pendingDetail);
+    }
     return () => {
       window.removeEventListener(
         PRESENTON_BLANK_SLIDE_PROMPT_EVENT,

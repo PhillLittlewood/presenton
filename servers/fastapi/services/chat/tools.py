@@ -32,6 +32,7 @@ from services.chat.schemas import (
     NoArgsInput,
     ReadSourceDocumentsInput,
     SaveSlideInput,
+    SetSpeakerNoteInput,
     SaveSmartSlideInput,
     SearchSlidesInput,
     SetPresentationThemeInput,
@@ -92,6 +93,9 @@ class ChatTools:
         self._mode = mode
         self._turn_user_message = ""
         self._generated_assets: list[dict[str, Any]] = []
+        # slide_id -> slide index, for slides generated this turn that still
+        # have no speaker note.
+        self._slides_missing_notes: dict[str, int] = {}
         self._tool_handlers: dict[str, ToolHandler] = {
             "addOutline": self._add_outline,
             "updateOutline": self._update_outline,
@@ -111,6 +115,7 @@ class ChatTools:
             "saveSlide": self._save_slide,
             "updateSlide": self._update_slide,
             "deleteSlide": self._delete_slide,
+            "setSpeakerNote": self._set_speaker_note,
             "addElement": self._add_element,
             "addInfographic": self._add_infographic,
             "updateElement": self._update_slide_element,
@@ -126,6 +131,26 @@ class ChatTools:
     def set_turn_context(self, user_message: str) -> None:
         self._turn_user_message = user_message or ""
         self._generated_assets = []
+        self._slides_missing_notes = {}
+
+    def slides_missing_speaker_notes(self) -> list[int]:
+        """Zero-based indexes of slides generated this turn that have no note."""
+        return sorted(self._slides_missing_notes.values())
+
+    def _track_speaker_note_status(self, result: Any) -> None:
+        if not isinstance(result, dict) or result.get("saved") is not True:
+            return
+        slide_id = result.get("slide_id")
+        if not isinstance(slide_id, str) or not slide_id:
+            return
+        if result.get("speaker_note_missing") is True and isinstance(
+            result.get("index"), int
+        ):
+            self._slides_missing_notes[slide_id] = result["index"]
+        elif result.get("has_speaker_note") is True or (
+            result.get("action") == "speaker_note_set"
+        ):
+            self._slides_missing_notes.pop(slide_id, None)
 
     def get_tool_definitions(self) -> list[Tool]:
         if self._memory.presentation_type == "smart":
@@ -174,7 +199,8 @@ class ChatTools:
                 name="addNewSlideLayout",
                 description=(
                     "Add a new slide from an available layout. Use getAvailableLayouts "
-                    "first, then pass content as a JSON-serialized object matching the layout."
+                    "first, then pass content as a JSON-serialized object matching the layout. "
+                    "Always pass speakerNote with a plain-text speaker note for the slide."
                 ),
                 schema=AddNewSlideLayoutInput,
                 strict=False,
@@ -262,15 +288,31 @@ class ChatTools:
                 name="saveSlide",
                 description=(
                     "Save full slide content for a layout. Use for complete slide payloads; "
-                    "visible element/component edits should use element/component tools."
+                    "visible element/component edits should use element/component tools. "
+                    "When creating or filling a new slide, also pass speakerNote."
                 ),
                 schema=SaveSlideInput,
                 strict=False,
             ),
             Tool(
                 name="updateSlide",
-                description="Replace an existing slide's layout/content by zero-based index.",
+                description=(
+                    "Replace an existing slide's layout/content by zero-based index. "
+                    "When filling a blank or new slide, also pass speakerNote."
+                ),
                 schema=UpdateSlideInput,
+                strict=False,
+            ),
+            Tool(
+                name="setSpeakerNote",
+                description=(
+                    "Set the speaker note (presenter/narration text) for one slide "
+                    "by zero-based index. Use this whenever the user asks to add, "
+                    "write, change or generate speaker notes. It changes only the "
+                    "note, never the visible slide. Pass the final note as plain "
+                    "text. The request is done only when this returns saved=true."
+                ),
+                schema=SetSpeakerNoteInput,
                 strict=False,
             ),
             Tool(
@@ -453,9 +495,23 @@ class ChatTools:
                 description=(
                     "Replace or insert one Smart HTML slide. Pass the complete HTML "
                     "fragment in html. For an edit, first read the slide, keep its "
-                    "design and scripts, and use replaceOldSlideAtIndex=true."
+                    "design and scripts, and use replaceOldSlideAtIndex=true. "
+                    "When creating a new slide, also pass speakerNote. To change "
+                    "only the speaker note, use setSpeakerNote instead."
                 ),
                 schema=SaveSmartSlideInput,
+                strict=False,
+            ),
+            Tool(
+                name="setSpeakerNote",
+                description=(
+                    "Set the speaker note (presenter/narration text) for one slide "
+                    "by zero-based index. Use this whenever the user asks to add, "
+                    "write, change or generate speaker notes. It changes only the "
+                    "note, never the visible slide. Pass the final note as plain "
+                    "text. The request is done only when this returns saved=true."
+                ),
+                schema=SetSpeakerNoteInput,
                 strict=False,
             ),
             Tool(
@@ -515,8 +571,32 @@ class ChatTools:
                 if not retried:
                     raise first_exc
 
+            self._track_speaker_note_status(result)
+
             if tool_call.name == "generateAssets":
                 self._remember_generated_assets(result)
+
+            if isinstance(result, dict) and result.get("saved") is False:
+                # The tool ran but did not write anything. Report that as a
+                # failure so neither the model nor the UI treats it as done.
+                details = result.get("validation_errors")
+                detail_text = (
+                    " " + "; ".join(str(item) for item in details[:5])
+                    if isinstance(details, list) and details
+                    else ""
+                )
+                failure_message = str(result.get("message") or "Nothing was saved.")
+                return {
+                    "ok": False,
+                    "tool": tool_call.name,
+                    "error": failure_message + detail_text,
+                    "result": result,
+                    "recovery": self._build_tool_recovery(
+                        tool_name=tool_call.name,
+                        args=parsed_args,
+                        error=failure_message + detail_text,
+                    ),
+                }
 
             response = {"ok": True, "tool": tool_call.name, "result": result}
             if repair_notes:
@@ -676,6 +756,7 @@ class ChatTools:
                 "layoutId": payload.layout_id,
                 "index": payload.index,
                 "replaceOldSlideAtIndex": False,
+                "speakerNote": payload.speaker_note,
             }
         )
 
@@ -691,6 +772,7 @@ class ChatTools:
                 "layoutId": payload.layout_id,
                 "index": payload.index,
                 "replaceOldSlideAtIndex": True,
+                "speakerNote": payload.speaker_note,
             }
         )
 
@@ -836,6 +918,14 @@ class ChatTools:
             layout_id=payload.layout_id,
             index=payload.index,
             replace_old_slide_at_index=payload.replace_old_slide_at_index,
+            speaker_note=payload.speaker_note,
+        )
+
+    async def _set_speaker_note(self, args: dict[str, Any]) -> dict[str, Any]:
+        payload = SetSpeakerNoteInput(**args)
+        return await self._memory.set_speaker_note(
+            index=payload.index,
+            speaker_note=payload.speaker_note,
         )
 
     async def _delete_slide(self, args: dict[str, Any]) -> dict[str, Any]:
