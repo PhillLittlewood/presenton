@@ -14,6 +14,7 @@ import {
   X,
   AlertTriangle,
   MousePointer2,
+  Film,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -55,6 +56,7 @@ import { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 import { sanitizeAnalyticsError } from "@/utils/analytics";
 import { v4 as uuidv4 } from "uuid";
 import StreamingGenerationMetrics from "./StreamingGenerationMetrics";
+import { useGenerateAllMotionClips } from "@/components/slide-editor/images/useGenerateAllMotionClips";
 
 const MAX_EXPORT_TITLE_LENGTH = 40;
 
@@ -125,6 +127,7 @@ const PresentationHeader = ({
     generationMetrics,
   } = useSelector((state: RootState) => state.presentationGeneration);
   const { onUndo, onRedo, canUndo, canRedo } = usePresentationUndoRedo();
+  const motionBatch = useGenerateAllMotionClips();
 
   useEffect(() => {
     if (isEditingTitle) {
@@ -867,6 +870,45 @@ const PresentationHeader = ({
               </button>
             </ToolTip>
           </div>
+
+          <ToolTip
+            content={
+              motionBatch.running
+                ? "Stop generating motion clips"
+                : "Create motion videos for all images"
+            }
+          >
+            <button
+              type="button"
+              aria-label="Create motion videos for all images"
+              data-testid="generate-all-motion-clips-btn"
+              disabled={
+                isStreaming ||
+                !presentationData?.slides ||
+                presentationData.slides.length === 0
+              }
+              onClick={() =>
+                motionBatch.running ? motionBatch.cancel() : void motionBatch.start()
+              }
+              className="inline-flex h-[38px] items-center justify-center gap-2 rounded-full border border-[#EDECEC] bg-[#F6F6F9] px-3.5 text-xs font-medium text-[#101323] transition-colors hover:border-[#D8D3FE] hover:bg-[#F0EDFF] hover:text-[#6847F4] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7A5AF8] focus-visible:ring-offset-2"
+            >
+              {motionBatch.running && motionBatch.progress ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  <span>
+                    {motionBatch.progress.done + motionBatch.progress.failed}/
+                    {motionBatch.progress.total}
+                  </span>
+                  <X className="size-3.5" aria-hidden="true" />
+                </>
+              ) : (
+                <>
+                  <Film className="size-4" aria-hidden="true" strokeWidth={1.8} />
+                  <span>Videos</span>
+                </>
+              )}
+            </button>
+          </ToolTip>
 
         {generationMode === "standard" && (
           <ToolTip content="Keyboard shortcuts (?)">

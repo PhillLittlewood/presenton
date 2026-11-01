@@ -4,7 +4,7 @@
  */
 
 export const MIN_MOTION_SECONDS = 2;
-export const MAX_MOTION_SECONDS = 20;
+export const MAX_MOTION_SECONDS = 15;
 export const DEFAULT_MOTION_SECONDS = 5;
 
 // Typical TTS pace: ~150 words per minute.

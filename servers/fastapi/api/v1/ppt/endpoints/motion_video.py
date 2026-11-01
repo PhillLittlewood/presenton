@@ -81,7 +81,7 @@ class GenerateMotionClipRequest(BaseModel):
     image_url: str = Field(description="URL/path of the slide image (LTX start frame)")
     motion_prompt: Optional[str] = None
     duration_seconds: Optional[int] = Field(
-        default=None, ge=1, le=30, description="Clip length; the workflow default if unset"
+        default=None, ge=1, le=15, description="Clip length; the workflow default if unset"
     )
     previous_motion_video: Optional[str] = Field(
         default=None,
