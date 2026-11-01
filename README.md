@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./readme_assets/images/logo.png" alt="Presenton" />
+  <img src="./readme_assets/images/presenton-motion-banner.png" alt="Presenton Motion" />
 </p>
 
 <p align="center">
@@ -16,11 +16,15 @@
   <a href="https://presenton.ai/"><img src="https://img.shields.io/badge/Platform-Docker%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat" alt="Platform" /></a>
 </p>
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/18582?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-18582" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/18582" alt="presenton%2Fpresenton | Trendshift" width="250" height="55" /></a>
-</p>
+# Presenton Motion
 
-# Open-Source AI Presentation Generator and API (Gamma, Canva, Beautiful AI, Decktopus, Presentations AI Alternative)
+**AI presentations with narrated video export and AI motion clips.** Open source, runs locally.
+
+> Presenton Motion is an independent fork of [Presenton](https://github.com/presenton/presenton) (Apache 2.0). It adds narrated video export (ComfyUI TTS) and AI-generated motion clips for slide images (ComfyUI LTX image-to-video). It is not affiliated with or endorsed by the Presenton team.
+
+## About Presenton
+
+Presenton is an open-source AI presentation generator and API (Gamma, Canva, Beautiful AI, Decktopus, Presentations AI alternative).
 
 Discover what Presenton can do from AI-powered presentation generation to editing, exporting, and flexible model providers.
 

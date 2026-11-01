@@ -11,7 +11,13 @@ interface PresentonSplashLoaderProps {
 export const PRESENTON_SPLASH_MIN_DURATION_MS = 3000;
 
 const SPLASH_ANIMATION_MS = 2600;
-const SPLASH_MASK_SRC = "/Presenton_Splash.png";
+const SPLASH_MASK_SRC = "/PresentonMotion_Splash.png";
+
+// Presenton Motion brand colours
+const SPLASH_BG = "#0A1128"; // deep navy
+const SPLASH_SURFACE = "#1B4F9C"; // expanding circle (brand blue)
+const SPLASH_TEXT_BASE = "#34D1C4"; // logo colour before the circle reaches it (brand teal)
+const SPLASH_TEXT_REVEAL = "#ffffff"; // logo colour once the circle has passed over it
 
 let splashSessionStartedAt: number | null = null;
 let splashMaskReadyPromise: Promise<void> | null = null;
@@ -81,7 +87,7 @@ export function PresentonSplashLoader({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    background: "#ffffff",
+    background: SPLASH_BG,
   };
 
   const surfaceStyle: CSSProperties = {
@@ -91,7 +97,7 @@ export function PresentonSplashLoader({
     width: "142vmax",
     height: "142vmax",
     borderRadius: "50%",
-    background: "#7a5af8",
+    background: SPLASH_SURFACE,
     transform: "translate3d(-50%, -50%, 0) scale(0.001)",
     animation: `presenton-splash-surface-grow ${SPLASH_ANIMATION_MS}ms linear ${animationDelayMs}ms both`,
     willChange: "transform",
@@ -102,8 +108,8 @@ export function PresentonSplashLoader({
     position: "relative",
     zIndex: 1,
     transform: "translateZ(0)",
-    width: "min(56vw, 511.5px)",
-    aspectRatio: "1023 / 342",
+    width: "min(72vw, 760px)",
+    aspectRatio: "1200 / 450",
     visibility: isWordmarkReady ? "visible" : "hidden",
   };
 
@@ -142,14 +148,14 @@ export function PresentonSplashLoader({
           className="presenton-splash-wordmark-layer presenton-splash-wordmark-base"
           style={{
             ...wordmarkLayerStyle,
-            background: "#7a5af8",
+            background: SPLASH_TEXT_BASE,
           }}
         />
         <span
           className="presenton-splash-wordmark-layer presenton-splash-wordmark-reveal"
           style={{
             ...wordmarkLayerStyle,
-            background: "#ffffff",
+            background: SPLASH_TEXT_REVEAL,
             clipPath: "circle(0 at 50% 50%)",
             animation: `presenton-splash-text-reveal ${SPLASH_ANIMATION_MS}ms linear ${animationDelayMs}ms both`,
             willChange: "clip-path",

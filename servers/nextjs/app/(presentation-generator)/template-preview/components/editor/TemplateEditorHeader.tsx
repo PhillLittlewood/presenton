@@ -83,7 +83,7 @@ export function TemplateEditorHeader({
         <button onClick={onBack} aria-label="Dashboard" type="button">
           <img
             src="/logo-with-bg.png"
-            alt="Presenton"
+            alt="Presenton Motion"
             className="h-10 w-10 cursor-pointer object-contain"
           />
         </button>

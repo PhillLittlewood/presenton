@@ -336,7 +336,7 @@ export default function AuthGate() {
       <section className="relative z-10 w-full max-w-lg rounded-[20px] border border-[#EDEEEF] bg-[#F9F8F8] p-7 sm:p-10">
         <div className="mb-7">
           <div className="flex items-center gap-4">
-            <div className="flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-[4px] bg-[#F4F3FF] p-3">
+            <div className="flex h-[60px] w-[60px] shrink-0 items-center justify-center">
               <Image
                 src="/logo-with-bg.png"
                 alt=""

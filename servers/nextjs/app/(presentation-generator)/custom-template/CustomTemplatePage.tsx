@@ -118,7 +118,7 @@ function StudioTopBar({ activeStep }: { activeStep: StudioStep }) {
         >
           <img
             src="/logo-with-bg.png"
-            alt="Presenton"
+            alt="Presenton Motion"
             className="h-full w-full"
             draggable={false}
           />

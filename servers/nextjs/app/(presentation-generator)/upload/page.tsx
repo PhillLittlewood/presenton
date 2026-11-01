@@ -7,7 +7,7 @@ import { normalizePresentationGenerationMode } from "@/utils/presentationGenerat
 import { isCommunityEnabled } from "@/utils/community";
 
 export const metadata: Metadata = {
-  title: "Presenton | Open Source AI presentation generator",
+  title: "Presenton Motion | AI presentations with narrated video",
   description:
     "Open-source AI presentation generator with custom layouts, multi-model support (OpenAI, Gemini, Ollama), and PDF/PPTX export. A free Gamma alternative.",
   alternates: {

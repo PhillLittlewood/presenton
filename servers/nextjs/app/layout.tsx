@@ -6,10 +6,10 @@ import MixpanelInitializer from "./MixpanelInitializer";
 import { Toaster } from "@/components/ui/sonner";
 import TailwindBrowserRuntime from "@/components/runtime/TailwindBrowserRuntime";
 export const metadata: Metadata = {
-  metadataBase: new URL("https://presenton.ai"),
-  title: "Presenton - Open Source AI presentation generator",
+  metadataBase: new URL("https://github.com/PhillLittlewood/presenton-motion"),
+  title: "Presenton Motion - AI presentations with narrated video and motion clips",
   description:
-    "Open-source AI presentation generator with custom layouts, multi-model support (OpenAI, Gemini, Ollama), and PDF/PPTX export. A free Gamma alternative.",
+    "Open-source AI presentation generator with narrated video export and AI motion clips. An independent fork of Presenton.",
   keywords: [
     "AI presentation generator",
     "data storytelling",
@@ -21,31 +21,31 @@ export const metadata: Metadata = {
     "professional slides",
   ],
   openGraph: {
-    title: "Presenton - Open Source AI presentation generator",
+    title: "Presenton Motion - AI presentations with narrated video and motion clips",
     description:
-      "Open-source AI presentation generator with custom layouts, multi-model support (OpenAI, Gemini, Ollama), and PDF/PPTX export. A free Gamma alternative.",
-    url: "https://presenton.ai",
-    siteName: "Presenton",
+      "Open-source AI presentation generator with narrated video export and AI motion clips. An independent fork of Presenton.",
+    url: "https://github.com/PhillLittlewood/presenton-motion",
+    siteName: "Presenton Motion",
     images: [
       {
-        url: "https://presenton.ai/presenton-feature-graphics.png",
+        url: "https://raw.githubusercontent.com/PhillLittlewood/presenton-motion/main/readme_assets/images/presenton-motion-og.png",
         width: 1200,
         height: 630,
-        alt: "Presenton Logo",
+        alt: "Presenton Motion logo",
       },
     ],
     type: "website",
     locale: "en_US",
   },
   alternates: {
-    canonical: "https://presenton.ai",
+    canonical: "https://github.com/PhillLittlewood/presenton-motion",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Presenton - Open Source AI presentation generator",
+    title: "Presenton Motion - AI presentations with narrated video and motion clips",
     description:
-      "Open-source AI presentation generator with custom layouts, multi-model support (OpenAI, Gemini, Ollama), and PDF/PPTX export. A free Gamma alternative.",
-    images: ["https://presenton.ai/presenton-feature-graphics.png"],
+      "Open-source AI presentation generator with narrated video export and AI motion clips. An independent fork of Presenton.",
+    images: ["https://raw.githubusercontent.com/PhillLittlewood/presenton-motion/main/readme_assets/images/presenton-motion-og.png"],
   },
 };
 
